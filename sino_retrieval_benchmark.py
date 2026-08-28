@@ -121,6 +121,29 @@ class TestResult:
             return str(self.retrieved[position].get(ID_KEY_NAME, ""))
         return ""
 
+    def retrieved_response(self, position: int) -> str:
+        if position < len(self.retrieved):
+            return str(self.retrieved[position].get(RETRIEVED_TEXT_KEY_NAME, ""))
+        return ""
+
+    @property
+    def matched_id(self) -> str:
+        return self.retrieved_id(self.rank - 1) if self.rank else ""
+
+    @property
+    def matched_response(self) -> str:
+        return self.retrieved_response(self.rank - 1) if self.rank else ""
+
+    @property
+    def other_suggestions(self) -> list[dict[str, str]]:
+        """All retrieved candidates other than the matched one, in rank order."""
+        matched_pos = self.rank - 1 if self.rank else None
+        return [
+            {"faq_id": str(doc.get(ID_KEY_NAME, "")), "response": str(doc.get(RETRIEVED_TEXT_KEY_NAME, ""))}
+            for i, doc in enumerate(self.retrieved)
+            if i != matched_pos
+        ]
+
 
 # --------------------------------------------------------------------------- #
 # Response parsing
@@ -429,13 +452,12 @@ def write_results(
     ws.title = "Details"
     header = [
         "Sheet", "Row", "Path", "Language", "Query", "Expected_FAQ_ID",
-    ]
-    for i in range(1, max_retrieved_cols + 1):
-        header.append(f"Retrieved_{i}_FAQ_ID")
-    header += [
-        "Rank_of_Expected", "Top1_Correct", "Reciprocal_Rank",
+        "Top1_Correct", "Rank_of_Expected", "Reciprocal_Rank",
     ]
     header += [f"Hit@{k}" for k in top_ks]
+    header += ["Matched_FAQ_ID", "Matched_Response"]
+    for i in range(1, max_retrieved_cols + 1):
+        header += [f"Suggested_{i}_FAQ_ID", f"Suggested_{i}_Response"]
     header += ["Latency_ms", "HTTP_Status", "Error", "Notes"]
     if save_raw:
         header.append("Raw_Response")
@@ -448,15 +470,14 @@ def write_results(
         row = [
             r.case.sheet, r.case.row_num, r.case.path, r.case.lang, r.case.query,
             ", ".join(r.case.expected_ids),
-        ]
-        for i in range(max_retrieved_cols):
-            row.append(r.retrieved_id(i))
-        row += [
-            r.rank if r.rank else "",
             "Y" if r.top1_correct else "N",
+            r.rank if r.rank else "",
             round(r.reciprocal_rank, 4),
         ]
         row += ["Y" if r.hit_at(k) else "N" for k in top_ks]
+        row += [r.matched_id, r.matched_response]
+        for i in range(max_retrieved_cols):
+            row += [r.retrieved_id(i), r.retrieved_response(i)]
         row += [
             round(r.latency_ms, 1) if r.latency_ms is not None else "",
             r.http_status if r.http_status is not None else "",
@@ -467,7 +488,15 @@ def write_results(
             row.append(json.dumps(r.raw_response, ensure_ascii=False)[:32000])
         ws.append(row)
 
-    for i, col_width in enumerate([20, 6, 14, 10, 45, 16] + [16] * max_retrieved_cols + [16, 12, 16] + [8] * len(top_ks) + [12, 12, 40, 25], start=1):
+    col_widths = (
+        [20, 6, 14, 10, 45, 16]  # Sheet, Row, Path, Language, Query, Expected_FAQ_ID
+        + [12, 16, 16]  # Top1_Correct, Rank_of_Expected, Reciprocal_Rank
+        + [8] * len(top_ks)  # Hit@k...
+        + [16, 45]  # Matched_FAQ_ID, Matched_Response
+        + [16, 45] * max_retrieved_cols  # Suggested_i_FAQ_ID, Suggested_i_Response
+        + [12, 12, 40, 25]  # Latency_ms, HTTP_Status, Error, Notes
+    )
+    for i, col_width in enumerate(col_widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = col_width
 
     # ---- Summary sheet ----

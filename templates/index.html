@@ -242,12 +242,17 @@
           <div class="stat"><div class="n">{{ batch.summary.mrr }}</div><div class="l">MRR</div></div>
         </div>
         <a class="download-link" href="{{ url_for('download', filename=batch.download_filename) }}">Download full results (.xlsx)</a>
-        <div class="table-scroll" style="margin-top:16px; max-height: 480px; overflow-y: auto;">
+        <p class="muted">Hover a truncated cell to see the full text. Full detail (including every
+           suggested FAQ and its response) is in the downloaded .xlsx.</p>
+        <div class="table-scroll" style="margin-top:8px; max-height: 560px; overflow-y: auto;">
           <table>
             <thead>
               <tr>
                 <th>#</th><th>Sheet</th><th>Path</th><th>Lang</th><th>Query</th><th>Expected</th>
-                <th>Retrieved #1</th><th>Rank</th><th>Top-1</th><th>Latency</th><th>Error</th>
+                <th>Correct</th><th>Rank</th>
+                <th>Matched FAQ_ID</th><th>Matched Response</th>
+                <th>Other Suggested FAQs</th>
+                <th>Latency</th><th>Error</th>
               </tr>
             </thead>
             <tbody>
@@ -259,8 +264,6 @@
                 <td>{{ r.case.lang }}</td>
                 <td>{{ r.case.query }}</td>
                 <td>{{ r.case.expected_ids | join(", ") }}</td>
-                <td>{{ r.retrieved_id(0) }}</td>
-                <td>{{ r.rank if r.rank else "—" }}</td>
                 <td>
                   {% if r.error %}
                     <span class="badge bad">error</span>
@@ -268,6 +271,22 @@
                     <span class="badge ok">Y</span>
                   {% else %}
                     <span class="badge bad">N</span>
+                  {% endif %}
+                </td>
+                <td>{{ r.rank if r.rank else "—" }}</td>
+                <td>{{ r.matched_id or "—" }}</td>
+                <td style="max-width:240px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
+                    title="{{ r.matched_response }}">{{ r.matched_response|truncate(80) or "—" }}</td>
+                <td style="max-width:320px;">
+                  {% if r.other_suggestions %}
+                    {% for s in r.other_suggestions %}
+                      <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
+                           title="{{ s.faq_id }}: {{ s.response }}">
+                        <strong>{{ s.faq_id }}</strong>: {{ s.response|truncate(60) }}
+                      </div>
+                    {% endfor %}
+                  {% else %}
+                    <span class="muted">—</span>
                   {% endif %}
                 </td>
                 <td>{{ "%.0f"|format(r.latency_ms) if r.latency_ms is not none else "—" }} ms</td>

@@ -163,10 +163,14 @@ Useful flags:
 
 `results.xlsx` has two sheets:
 
-**Details** — one row per test case: the query, expected FAQ_ID, the top-5
-retrieved FAQ_IDs in rank order, the rank at which the expected answer was
-found (blank if not found), Top-1 correct (Y/N), reciprocal rank, Hit@k for
-each configured k, latency, HTTP status, and any error.
+**Details** — one row per test case: the query, expected FAQ_ID, Top-1
+correct (Y/N), the rank at which the expected answer was found (blank if
+not found), reciprocal rank, Hit@k for each configured k, the
+**Matched_FAQ_ID** / **Matched_Response** (the retrieved FAQ that matched
+the expected answer, and its actual answer text), the full ranked
+**Suggested_1..N_FAQ_ID** / **Suggested_i_Response** pairs (every candidate
+the API returned, in rank order — this includes the matched one at its
+rank, plus the alternatives), latency, HTTP status, and any error.
 
 **Summary** — aggregate metrics, both overall and split by `FAQ_Mortgage` /
 `FAQ_Leasing`:
