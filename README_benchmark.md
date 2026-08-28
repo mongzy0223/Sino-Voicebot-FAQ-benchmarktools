@@ -109,6 +109,32 @@ sheet with these columns:
 Delete the example rows before running a real benchmark. An `Instructions`
 sheet in the template repeats this reference.
 
+**Sino's own multi-language benchmark template is also accepted directly** —
+no conversion needed. That format has one sheet per language (e.g.
+`Benchmark Template zh` / `en` / `cn`) with `No.` / `Testing Query` /
+`Category` / `FAQ Reference No.` columns, and the tool handles it
+automatically:
+
+- Every sheet with a recognizable header is loaded and combined into one run.
+- `query_lang` is inferred per sheet from a language suffix in its name
+  (`zh` → `zh-Hant`, `en` → `en`, `cn` → `zh-Hans` — edit
+  `SHEET_NAME_LANG_SUFFIXES` in `sino_retrieval_benchmark.py` if your sheet
+  names or language codes differ).
+- `Category` values (`Leasing`, `Mortgage`) are mapped to the API's `Path`
+  values (`FAQ_Leasing`, `FAQ_Mortgage`) via `CATEGORY_TO_PATH` — extend
+  that dict if a new category is added on the CMS side.
+- Rows whose query starts with `EG:` / `EG -` (the template's instructional
+  examples) are skipped automatically.
+- The results file's `Details` sheet gets a `Sheet` column so you can see
+  which language sheet each row came from, and the `Summary` sheet gets a
+  "By Language" breakdown (Top-1 accuracy / MRR per language) whenever a
+  run spans more than one language.
+
+This assumes the CMS's real `FAQ_ID` values match the `FAQ Reference No.`
+values in the sheet (e.g. `Q1`, `Q40`) — confirm this with `--probe-query`
+against a query you know the expected ID for before trusting a full run's
+scores.
+
 ## 3. Run the benchmark
 
 ```bash

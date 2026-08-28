@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from dataclasses import dataclass, field
@@ -46,11 +47,37 @@ DISPLAY_COLUMNS = ["FAQ_ID", "FAQ"]
 RETRIEVED_TEXT_KEY_NAME = "FAQ_answer_listening_friendly"
 VALID_PATHS = ("FAQ_Mortgage", "FAQ_Leasing")
 
-TESTCASE_QUERY_COLS = ["Query", "Question", "query", "question"]
-TESTCASE_EXPECTED_COLS = ["Expected_FAQ_ID", "Expected FAQ_ID", "FAQ_ID", "expected_faq_id"]
+TESTCASE_QUERY_COLS = ["Query", "Question", "query", "question", "Testing Query"]
+TESTCASE_EXPECTED_COLS = [
+    "Expected_FAQ_ID", "Expected FAQ_ID", "FAQ_ID", "expected_faq_id",
+    "FAQ Reference No.", "FAQ Reference No",
+]
 TESTCASE_PATH_COLS = ["Path", "Category", "path"]
 TESTCASE_LANG_COLS = ["Language", "Lang", "query_lang", "language"]
 TESTCASE_NOTES_COLS = ["Notes", "notes"]
+
+# Lets a "Category" column (e.g. Sino's own benchmark template, which uses
+# "Leasing"/"Mortgage" rather than the API's FAQ_Leasing/FAQ_Mortgage path
+# names) resolve straight to a valid Path. Extend this if new categories
+# are added on the CMS side.
+CATEGORY_TO_PATH = {
+    "leasing": "FAQ_Leasing",
+    "mortgage": "FAQ_Mortgage",
+}
+
+# When a workbook has no single "Test Cases" sheet, each sheet is treated as
+# its own set of test cases and its query_lang is inferred from a language
+# suffix in the sheet name (e.g. "Benchmark Template zh" -> zh-Hant). Add
+# entries here if other sheet-name suffixes/languages are used.
+SHEET_NAME_LANG_SUFFIXES = {
+    "zh": "zh-Hant",
+    "en": "en",
+    "cn": "zh-Hans",
+}
+
+# Rows whose query starts with an "EG:" / "EG -" marker are template
+# instructional examples, not real test cases, and are skipped.
+EG_PREFIX_RE = re.compile(r"^\s*eg\s*[:\-]", re.IGNORECASE)
 
 
 # --------------------------------------------------------------------------- #
@@ -65,6 +92,7 @@ class TestCase:
     path: str
     lang: str
     notes: str = ""
+    sheet: str = ""
 
 
 @dataclass
@@ -245,14 +273,31 @@ def _pick_column(header_row: list[str], candidates: list[str]) -> Optional[int]:
     return None
 
 
-def load_testcases(path: Path, default_path: Optional[str], default_lang: str) -> list[TestCase]:
-    wb = openpyxl.load_workbook(path, data_only=True)
-    sheet_name = "Test Cases" if "Test Cases" in wb.sheetnames else wb.sheetnames[0]
-    ws = wb[sheet_name]
+def _infer_lang_from_sheet_name(sheet_name: str, default_lang: str) -> str:
+    """E.g. 'Benchmark Template zh' -> zh-Hant, via SHEET_NAME_LANG_SUFFIXES."""
+    tokens = re.findall(r"[A-Za-z]+", sheet_name.lower())
+    for token in reversed(tokens):
+        if token in SHEET_NAME_LANG_SUFFIXES:
+            return SHEET_NAME_LANG_SUFFIXES[token]
+    return default_lang
 
+
+def _resolve_path(raw_value: Any, default_path: Optional[str]) -> Optional[str]:
+    if raw_value is None or str(raw_value).strip() == "":
+        return default_path
+    key = str(raw_value).strip()
+    if key in VALID_PATHS:
+        return key
+    return CATEGORY_TO_PATH.get(key.lower().replace(" ", "_"), key)
+
+
+def _load_sheet(
+    wb, sheet_name: str, source_path: Path, default_path: Optional[str], default_lang: str
+) -> list[TestCase]:
+    ws = wb[sheet_name]
     rows = list(ws.iter_rows(values_only=True))
     if not rows:
-        raise ValueError(f"Sheet {sheet_name!r} in {path} is empty.")
+        return []
     header = list(rows[0])
 
     query_idx = _pick_column(header, TESTCASE_QUERY_COLS)
@@ -262,33 +307,37 @@ def load_testcases(path: Path, default_path: Optional[str], default_lang: str) -
     notes_idx = _pick_column(header, TESTCASE_NOTES_COLS)
 
     if query_idx is None or expected_idx is None:
-        raise ValueError(
-            f"Could not find required columns in {path}. Expected a header with a "
-            f"query column (one of {TESTCASE_QUERY_COLS}) and an expected-answer "
-            f"column (one of {TESTCASE_EXPECTED_COLS}). Found header: {header}"
-        )
+        return []
 
     cases: list[TestCase] = []
     for row_num, row in enumerate(rows[1:], start=2):
         query = row[query_idx] if query_idx < len(row) else None
         if query is None or str(query).strip() == "":
             continue
+        query_str = str(query).strip()
+        if EG_PREFIX_RE.match(query_str):
+            continue
+
         expected_raw = row[expected_idx] if expected_idx < len(row) else None
         expected_ids = [e.strip() for e in str(expected_raw or "").split(",") if e.strip()]
         if not expected_ids:
-            raise ValueError(f"Row {row_num} in {path} has a query but no Expected_FAQ_ID.")
+            raise ValueError(
+                f"Row {row_num} in sheet {sheet_name!r} of {source_path} has a query but no "
+                f"expected FAQ ID."
+            )
 
-        row_path = None
-        if path_idx is not None and path_idx < len(row):
-            row_path = row[path_idx]
-        row_path = str(row_path).strip() if row_path else default_path
+        raw_path = row[path_idx] if path_idx is not None and path_idx < len(row) else None
+        row_path = _resolve_path(raw_path, default_path)
         if not row_path:
             raise ValueError(
-                f"Row {row_num} in {path} has no Path and no --default-path was given."
+                f"Row {row_num} in sheet {sheet_name!r} of {source_path} has no Path/Category "
+                f"and no --default-path was given."
             )
         if row_path not in VALID_PATHS:
             raise ValueError(
-                f"Row {row_num} in {path} has Path={row_path!r}, expected one of {VALID_PATHS}."
+                f"Row {row_num} in sheet {sheet_name!r} of {source_path} has Path/Category="
+                f"{raw_path!r}, which doesn't map to one of {VALID_PATHS}. Add a mapping in "
+                f"CATEGORY_TO_PATH or fix the sheet."
             )
 
         row_lang = None
@@ -303,12 +352,48 @@ def load_testcases(path: Path, default_path: Optional[str], default_lang: str) -
         cases.append(
             TestCase(
                 row_num=row_num,
-                query=str(query).strip(),
+                query=query_str,
                 expected_ids=expected_ids,
                 path=row_path,
                 lang=row_lang,
                 notes=row_notes,
+                sheet=sheet_name,
             )
+        )
+    return cases
+
+
+def load_testcases(path: Path, default_path: Optional[str], default_lang: str) -> list[TestCase]:
+    """
+    Supports two workbook layouts:
+
+    1. A single "Test Cases" sheet (see sino_benchmark_testcases_TEMPLATE.xlsx):
+       Query / Expected_FAQ_ID / Path / Language / Notes columns.
+
+    2. Sino's own multi-language benchmark template: one sheet per language
+       (e.g. "Benchmark Template zh/en/cn") with No. / Testing Query /
+       Category / FAQ Reference No. columns. query_lang is inferred per
+       sheet from its name (see SHEET_NAME_LANG_SUFFIXES), Category is
+       mapped to a Path via CATEGORY_TO_PATH, and "EG:"-prefixed example
+       rows are skipped automatically. All sheets with a recognizable
+       header are combined into one test run.
+    """
+    wb = openpyxl.load_workbook(path, data_only=True)
+
+    if "Test Cases" in wb.sheetnames:
+        return _load_sheet(wb, "Test Cases", path, default_path, default_lang)
+
+    cases: list[TestCase] = []
+    for sheet_name in wb.sheetnames:
+        sheet_lang = _infer_lang_from_sheet_name(sheet_name, default_lang)
+        cases.extend(_load_sheet(wb, sheet_name, path, default_path, sheet_lang))
+
+    if not cases:
+        raise ValueError(
+            f"Could not find a usable test-case sheet in {path}. Expected either a sheet named "
+            f"'Test Cases', or one or more sheets with a query column (one of "
+            f"{TESTCASE_QUERY_COLS}) and an expected-answer column (one of "
+            f"{TESTCASE_EXPECTED_COLS}). Sheets found: {wb.sheetnames}"
         )
     return cases
 
@@ -343,7 +428,7 @@ def write_results(
     ws = wb.active
     ws.title = "Details"
     header = [
-        "Row", "Path", "Language", "Query", "Expected_FAQ_ID",
+        "Sheet", "Row", "Path", "Language", "Query", "Expected_FAQ_ID",
     ]
     for i in range(1, max_retrieved_cols + 1):
         header.append(f"Retrieved_{i}_FAQ_ID")
@@ -361,7 +446,7 @@ def write_results(
 
     for r in results:
         row = [
-            r.case.row_num, r.case.path, r.case.lang, r.case.query,
+            r.case.sheet, r.case.row_num, r.case.path, r.case.lang, r.case.query,
             ", ".join(r.case.expected_ids),
         ]
         for i in range(max_retrieved_cols):
@@ -382,7 +467,7 @@ def write_results(
             row.append(json.dumps(r.raw_response, ensure_ascii=False)[:32000])
         ws.append(row)
 
-    for i, col_width in enumerate([6, 14, 10, 45, 16] + [16] * max_retrieved_cols + [16, 12, 16] + [8] * len(top_ks) + [12, 12, 40, 25], start=1):
+    for i, col_width in enumerate([20, 6, 14, 10, 45, 16] + [16] * max_retrieved_cols + [16, 12, 16] + [8] * len(top_ks) + [12, 12, 40, 25], start=1):
         ws.column_dimensions[get_column_letter(i)].width = col_width
 
     # ---- Summary sheet ----
@@ -429,6 +514,26 @@ def write_results(
             1,
         ),
     )
+    languages = sorted({r.case.lang for r in results})
+    if len(languages) > 1:
+        ws2.append([])
+        ws2.append(["By Language", "Test Cases", "Errors", "Top-1 Accuracy (%)", "MRR"])
+        for cell in ws2[ws2.max_row]:
+            cell.font = Font(bold=True)
+            cell.fill = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")
+        for lang in languages:
+            lang_results = [r for r in results if r.case.lang == lang]
+            lang_scored = [r for r in lang_results if not r.error]
+            ws2.append(
+                [
+                    lang,
+                    len(lang_results),
+                    len(lang_results) - len(lang_scored),
+                    pct(sum(1 for r in lang_scored if r.top1_correct), len(lang_scored)),
+                    round(sum(r.reciprocal_rank for r in lang_scored) / max(1, len(lang_scored)), 4),
+                ]
+            )
+
     ws2.append([])
     ws2.append([f"Generated: {datetime.now().isoformat(timespec='seconds')}"])
 
