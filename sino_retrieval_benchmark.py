@@ -67,12 +67,12 @@ CATEGORY_TO_PATH = {
 
 # When a workbook has no single "Test Cases" sheet, each sheet is treated as
 # its own set of test cases and its query_lang is inferred from a language
-# suffix in the sheet name (e.g. "Benchmark Template zh" -> zh-Hant). Add
+# suffix in the sheet name (e.g. "Benchmark Template cn" -> sc). Add
 # entries here if other sheet-name suffixes/languages are used.
 SHEET_NAME_LANG_SUFFIXES = {
-    "zh": "zh-Hant",
+    "zh": "zh",
     "en": "en",
-    "cn": "zh-Hans",
+    "cn": "sc",
 }
 
 # Rows whose query starts with an "EG:" / "EG -" marker are template
@@ -274,7 +274,7 @@ def _pick_column(header_row: list[str], candidates: list[str]) -> Optional[int]:
 
 
 def _infer_lang_from_sheet_name(sheet_name: str, default_lang: str) -> str:
-    """E.g. 'Benchmark Template zh' -> zh-Hant, via SHEET_NAME_LANG_SUFFIXES."""
+    """E.g. 'Benchmark Template cn' -> sc, via SHEET_NAME_LANG_SUFFIXES."""
     tokens = re.findall(r"[A-Za-z]+", sheet_name.lower())
     for token in reversed(tokens):
         if token in SHEET_NAME_LANG_SUFFIXES:
