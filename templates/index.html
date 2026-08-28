@@ -77,6 +77,20 @@
     cursor: pointer;
   }
   button:hover { background: var(--accent-dark); }
+  button:disabled { background: var(--muted); cursor: not-allowed; }
+  .progress-track {
+    max-width: 420px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 999px;
+    transition: width 0.2s ease;
+  }
   .error {
     background: var(--bad-bg);
     color: var(--bad);
@@ -241,7 +255,7 @@
 
   <div class="card">
     <h2>2. Run a full benchmark <span class="hint">— upload a test-case .xlsx and score retrieval accuracy</span></h2>
-    <form method="post" action="{{ url_for('batch') }}" enctype="multipart/form-data">
+    <form id="batchForm" enctype="multipart/form-data">
       <div class="row">
         <div class="field grow">
           <label for="testcases">Test cases (.xlsx)</label>
@@ -276,7 +290,14 @@
         </div>
       </div>
       {% include "_advanced_settings.html" %}
-      <button type="submit">Run benchmark</button>
+      <button type="submit" id="batchSubmitBtn">Run benchmark</button>
+      <p id="batchFormError" class="error" style="display:none;"></p>
+      <div id="batchProgressWrap" style="display:none;">
+        <div class="progress-track">
+          <div id="batchProgressFill" class="progress-fill" style="width:0%;"></div>
+        </div>
+        <p id="batchProgressLabel" class="muted" style="margin-top:6px;">Starting…</p>
+      </div>
     </form>
 
     {% if batch %}
@@ -353,5 +374,76 @@
   </div>
 
 </main>
+<script>
+document.getElementById('batchForm').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var form = e.target;
+  var btn = document.getElementById('batchSubmitBtn');
+  var errBox = document.getElementById('batchFormError');
+  var progressWrap = document.getElementById('batchProgressWrap');
+  var progressFill = document.getElementById('batchProgressFill');
+  var progressLabel = document.getElementById('batchProgressLabel');
+
+  function showError(msg) {
+    btn.disabled = false;
+    btn.textContent = 'Run benchmark';
+    progressWrap.style.display = 'none';
+    errBox.textContent = msg;
+    errBox.style.display = 'block';
+  }
+
+  errBox.style.display = 'none';
+  errBox.textContent = '';
+  btn.disabled = true;
+  btn.textContent = 'Starting…';
+  progressWrap.style.display = 'block';
+  progressFill.style.width = '0%';
+  progressLabel.textContent = 'Starting…';
+
+  fetch('/batch/start', { method: 'POST', body: new FormData(form) })
+    .then(function (resp) { return resp.json().then(function (data) { return { ok: resp.ok, data: data }; }); })
+    .then(function (result) {
+      if (!result.ok || result.data.error) {
+        showError(result.data.error || 'Failed to start the benchmark.');
+        return;
+      }
+      var jobId = result.data.job_id;
+      var total = result.data.total;
+
+      var poll = setInterval(function () {
+        fetch('/batch/progress/' + jobId)
+          .then(function (resp) { return resp.json().then(function (data) { return { ok: resp.ok, data: data }; }); })
+          .then(function (result) {
+            if (!result.ok) {
+              clearInterval(poll);
+              showError(result.data.error || 'Progress check failed.');
+              return;
+            }
+            var data = result.data;
+            var current = data.current || 0;
+            var pct = total ? Math.round((current / total) * 100) : 0;
+            progressFill.style.width = pct + '%';
+            progressLabel.textContent = current + ' / ' + total + ' (' + pct + '%)';
+            btn.textContent = 'Running… ' + pct + '%';
+
+            if (data.status === 'done') {
+              clearInterval(poll);
+              window.location.href = '/batch/result/' + jobId;
+            } else if (data.status === 'error') {
+              clearInterval(poll);
+              showError(data.error || 'The benchmark run failed.');
+            }
+          })
+          .catch(function (err) {
+            clearInterval(poll);
+            showError('Lost connection while polling progress: ' + err);
+          });
+      }, 600);
+    })
+    .catch(function (err) {
+      showError('Could not reach the server: ' + err);
+    });
+});
+</script>
 </body>
 </html>

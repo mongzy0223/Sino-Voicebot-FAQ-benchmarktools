@@ -16,14 +16,15 @@ Usage:
 
 from __future__ import annotations
 
-import io
 import re
 import tempfile
+import threading
+import time
 import uuid
 from pathlib import Path
 
 import requests
-from flask import Flask, redirect, render_template, request, send_file, url_for
+from flask import Flask, jsonify, redirect, render_template, request, send_file, url_for
 
 from sino_retrieval_benchmark import (
     DEFAULT_API_URL,
@@ -49,6 +50,12 @@ app = Flask(__name__)
 RESULTS_DIR = Path(tempfile.gettempdir()) / "sino_benchmark_web_results"
 RESULTS_DIR.mkdir(exist_ok=True)
 SAFE_FILENAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+# In-memory job tracking for batch runs, so the browser can poll progress
+# while a run is in flight instead of blocking on one long request. Fine
+# for this tool's single-user, single-process, local-only use.
+JOBS: dict[str, dict] = {}
+JOBS_LOCK = threading.Lock()
 
 DEFAULTS = {
     "api_url": DEFAULT_API_URL,
@@ -158,8 +165,64 @@ def probe():
     )
 
 
-@app.route("/batch", methods=["POST"])
-def batch():
+def _run_batch_job(job_id: str, cases: list, settings: dict, headers: dict, top_ks: list[int], delay: float):
+    session = requests.Session()
+    results: list[TestResult] = []
+    try:
+        for i, case in enumerate(cases):
+            req_body = build_request_body(
+                case.query, case.path, case.lang,
+                settings["project_id"], settings["cms_project_id"], settings["graph_name"],
+            )
+            data, status, latency_ms, error = call_api(
+                session, settings["api_url"], req_body, headers, settings["timeout"], settings["retries"]
+            )
+            result = TestResult(case=case, http_status=status, latency_ms=latency_ms, error=error, raw_response=data)
+            if data is not None and not error:
+                try:
+                    retrieved, exact_match, confidence = extract_match_data(
+                        data, ID_KEY_NAME, RETRIEVED_TEXT_KEY_NAME, override_path=settings["response_list_path"]
+                    )
+                except ValueError as exc:
+                    retrieved, exact_match, confidence = [], None, None
+                    result.error = str(exc)
+                result.retrieved = retrieved
+                result.exact_match = exact_match
+                result.confidence_score = confidence
+                result.rank = score_result(case, retrieved)
+            results.append(result)
+            with JOBS_LOCK:
+                JOBS[job_id]["current"] = i + 1
+            if delay and i < len(cases) - 1:
+                time.sleep(delay)
+
+        output_filename = f"results_{job_id}.xlsx"
+        write_results(results, RESULTS_DIR / output_filename, top_ks)
+
+        scored = [r for r in results if not r.error]
+        summary = {
+            "total": len(results),
+            "errors": len(results) - len(scored),
+            "top1_pct": round(100.0 * sum(1 for r in scored if r.top1_correct) / len(scored), 1) if scored else 0.0,
+            "mrr": round(sum(r.reciprocal_rank for r in scored) / len(scored), 4) if scored else 0.0,
+        }
+        with JOBS_LOCK:
+            JOBS[job_id].update(
+                {
+                    "status": "done",
+                    "results": results,
+                    "summary": summary,
+                    "top_ks": top_ks,
+                    "download_filename": output_filename,
+                }
+            )
+    except Exception as exc:  # keep the background thread from dying silently
+        with JOBS_LOCK:
+            JOBS[job_id].update({"status": "error", "error": str(exc)})
+
+
+@app.route("/batch/start", methods=["POST"])
+def batch_start():
     settings = form_settings(request.form)
     default_path = request.form.get("default_path", "").strip() or None
     default_lang = request.form.get("default_lang", "en").strip() or "en"
@@ -168,88 +231,66 @@ def batch():
     limit_raw = request.form.get("limit", "").strip()
     limit = int(limit_raw) if limit_raw else None
 
-    batch_result = {"error": None}
     upload = request.files.get("testcases")
     if not upload or not upload.filename:
-        batch_result["error"] = "Please choose a test-case .xlsx file."
-        return render_template(
-            "index.html", defaults=DEFAULTS, valid_paths=VALID_PATHS, probe=None, batch=batch_result
-        )
+        return jsonify({"error": "Please choose a test-case .xlsx file."}), 400
 
     try:
         headers = parse_headers_raw(settings["headers_raw"])
     except ValueError as exc:
-        batch_result["error"] = str(exc)
-        return render_template(
-            "index.html", defaults=DEFAULTS, valid_paths=VALID_PATHS, probe=None, batch=batch_result
-        )
+        return jsonify({"error": str(exc)}), 400
 
-    run_id = uuid.uuid4().hex[:12]
-    upload_path = RESULTS_DIR / f"upload_{run_id}.xlsx"
+    job_id = uuid.uuid4().hex[:12]
+    upload_path = RESULTS_DIR / f"upload_{job_id}.xlsx"
     upload.save(upload_path)
 
     try:
         top_ks = sorted({int(k) for k in top_k_raw.split(",") if k.strip()})
         cases = load_testcases(upload_path, default_path, default_lang)
     except ValueError as exc:
-        batch_result["error"] = str(exc)
-        return render_template(
-            "index.html", defaults=DEFAULTS, valid_paths=VALID_PATHS, probe=None, batch=batch_result
-        )
+        return jsonify({"error": str(exc)}), 400
     finally:
         upload_path.unlink(missing_ok=True)
 
     if limit:
         cases = cases[:limit]
+    if not cases:
+        return jsonify({"error": "No usable test cases found in that file."}), 400
 
-    session = requests.Session()
-    results: list[TestResult] = []
-    import time as _time
+    with JOBS_LOCK:
+        JOBS[job_id] = {"status": "running", "current": 0, "total": len(cases), "error": None}
 
-    for i, case in enumerate(cases):
-        req_body = build_request_body(
-            case.query, case.path, case.lang,
-            settings["project_id"], settings["cms_project_id"], settings["graph_name"],
-        )
-        data, status, latency_ms, error = call_api(
-            session, settings["api_url"], req_body, headers, settings["timeout"], settings["retries"]
-        )
-        result = TestResult(case=case, http_status=status, latency_ms=latency_ms, error=error, raw_response=data)
-        if data is not None and not error:
-            try:
-                retrieved, exact_match, confidence = extract_match_data(
-                    data, ID_KEY_NAME, RETRIEVED_TEXT_KEY_NAME, override_path=settings["response_list_path"]
-                )
-            except ValueError as exc:
-                retrieved, exact_match, confidence = [], None, None
-                result.error = str(exc)
-            result.retrieved = retrieved
-            result.exact_match = exact_match
-            result.confidence_score = confidence
-            result.rank = score_result(case, retrieved)
-        results.append(result)
-        if delay and i < len(cases) - 1:
-            _time.sleep(delay)
+    threading.Thread(
+        target=_run_batch_job, args=(job_id, cases, settings, headers, top_ks, delay), daemon=True
+    ).start()
 
-    output_filename = f"results_{run_id}.xlsx"
-    write_results(results, RESULTS_DIR / output_filename, top_ks)
+    return jsonify({"job_id": job_id, "total": len(cases)})
 
-    scored = [r for r in results if not r.error]
-    summary = {
-        "total": len(results),
-        "errors": len(results) - len(scored),
-        "top1_pct": round(100.0 * sum(1 for r in scored if r.top1_correct) / len(scored), 1) if scored else 0.0,
-        "mrr": round(sum(r.reciprocal_rank for r in scored) / len(scored), 4) if scored else 0.0,
-    }
 
-    batch_result.update(
-        {
-            "results": results,
-            "summary": summary,
-            "top_ks": top_ks,
-            "download_filename": output_filename,
-        }
+@app.route("/batch/progress/<job_id>")
+def batch_progress(job_id: str):
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+    if not job:
+        return jsonify({"error": "Unknown job (the server may have restarted)."}), 404
+    return jsonify(
+        {"status": job["status"], "current": job.get("current", 0), "total": job.get("total", 0), "error": job.get("error")}
     )
+
+
+@app.route("/batch/result/<job_id>")
+def batch_result_view(job_id: str):
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+    if not job or job.get("status") != "done":
+        return redirect(url_for("index"))
+    batch_result = {
+        "error": None,
+        "results": job["results"],
+        "summary": job["summary"],
+        "top_ks": job["top_ks"],
+        "download_filename": job["download_filename"],
+    }
     return render_template(
         "index.html", defaults=DEFAULTS, valid_paths=VALID_PATHS, probe=None, batch=batch_result
     )
@@ -266,4 +307,4 @@ def download(filename: str):
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    app.run(host="127.0.0.1", port=5000, debug=False, threaded=True)

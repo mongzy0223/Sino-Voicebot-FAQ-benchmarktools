@@ -100,6 +100,12 @@ the matched FAQ and other suggested FAQs in a plain results view; the raw
 request/response JSON is tucked into a collapsed "Show raw request/response
 (debug)" section if you need it.
 
+The batch runner runs in the background and shows a live progress bar
+(`current / total`, updated roughly twice a second) while the "Run
+benchmark" button is disabled — you can't accidentally start a second run
+on top of one still in progress. The page moves to the results view
+automatically once it finishes.
+
 This has to run locally rather than as a hosted page: browsers block a web
 page from calling an API on a different origin unless that API opts in via
 CORS, and `dev.setsailapi.com` doesn't. Running it with `python3 app.py`
