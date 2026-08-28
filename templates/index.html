@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sino Voicebot FAQ Retrieval Benchmark</title>
+<style>
+  :root {
+    --border: #d9dde3;
+    --bg: #f7f8fa;
+    --card: #ffffff;
+    --text: #1f2430;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --accent-dark: #1d4ed8;
+    --good: #15803d;
+    --bad: #b91c1c;
+    --good-bg: #ecfdf3;
+    --bad-bg: #fef2f2;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    padding: 24px 32px;
+    border-bottom: 1px solid var(--border);
+    background: var(--card);
+  }
+  header h1 { margin: 0 0 4px; font-size: 20px; }
+  header p { margin: 0; color: var(--muted); font-size: 13px; }
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 24px 32px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+  }
+  .card h2 { margin-top: 0; font-size: 16px; }
+  .card h2 .hint { font-weight: normal; color: var(--muted); font-size: 12.5px; }
+  form { display: flex; flex-direction: column; gap: 12px; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 180px; }
+  .field.grow { flex: 3; min-width: 260px; }
+  label { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+  input[type=text], input[type=number], input[type=file], select, textarea {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 14px;
+    font-family: inherit;
+    background: #fff;
+    color: var(--text);
+  }
+  textarea { resize: vertical; font-family: ui-monospace, monospace; font-size: 12.5px; }
+  details { border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; }
+  details summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); }
+  details .row { margin-top: 12px; }
+  button {
+    align-self: flex-start;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 9px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { background: var(--accent-dark); }
+  .error {
+    background: var(--bad-bg);
+    color: var(--bad);
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13.5px;
+  }
+  pre {
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 14px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 12.5px;
+    max-height: 420px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td {
+    border-bottom: 1px solid var(--border);
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { color: var(--muted); font-weight: 600; background: #fafbfc; position: sticky; top: 0; }
+  .table-scroll { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .badge.ok { background: var(--good-bg); color: var(--good); }
+  .badge.bad { background: var(--bad-bg); color: var(--bad); }
+  .stat-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .stat {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    min-width: 120px;
+  }
+  .stat .n { font-size: 22px; font-weight: 700; }
+  .stat .l { font-size: 12px; color: var(--muted); }
+  .download-link {
+    display: inline-block;
+    margin-top: 12px;
+    background: var(--good);
+    color: #fff;
+    text-decoration: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 13.5px;
+    font-weight: 600;
+  }
+  .muted { color: var(--muted); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sino Voicebot FAQ Retrieval Benchmark</h1>
+  <p>Runs locally · calls dev.setsailapi.com's text_retrieval_test graph server-side · results never leave your machine</p>
+</header>
+<main>
+
+  <div class="card">
+    <h2>1. Probe a single query <span class="hint">— confirm the API and response shape before a full run</span></h2>
+    <form method="post" action="{{ url_for('probe') }}">
+      <div class="row">
+        <div class="field grow">
+          <label for="query">Query</label>
+          <input type="text" id="query" name="query" placeholder="e.g. What is the current mortgage interest rate?"
+                 value="{{ probe.query if probe else '' }}" required>
+        </div>
+        <div class="field">
+          <label for="path">Path</label>
+          <select id="path" name="path" required>
+            <option value="">Select…</option>
+            {% for p in valid_paths %}
+            <option value="{{ p }}" {% if probe and probe.path == p %}selected{% endif %}>{{ p }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="lang">Language</label>
+          <input type="text" id="lang" name="lang" value="{{ probe.lang if probe else 'en' }}">
+        </div>
+      </div>
+      {% include "_advanced_settings.html" %}
+      <button type="submit">Send probe query</button>
+    </form>
+
+    {% if probe %}
+      {% if probe.error %}
+        <p class="error">{{ probe.error }}</p>
+      {% endif %}
+      {% if probe.request_body %}
+        <p class="muted">HTTP {{ probe.status }} · {{ "%.0f"|format(probe.latency_ms) }} ms</p>
+        <div class="row">
+          <div class="field grow">
+            <label>Request body sent</label>
+            <pre>{{ probe.request_body | tojson(indent=2) }}</pre>
+          </div>
+          <div class="field grow">
+            <label>Raw response</label>
+            <pre>{{ probe.raw_response | tojson(indent=2) if probe.raw_response is not none else "<no JSON body>" }}</pre>
+          </div>
+        </div>
+        <label>Auto-detected retrieved list ({{ probe.retrieved | length }} item(s))</label>
+        <pre>{{ probe.retrieved | tojson(indent=2) }}</pre>
+        {% if probe.request_body and not probe.retrieved %}
+          <p class="muted">No list containing FAQ_ID was found automatically. Check the raw response above and set
+             "Response list path override" in Advanced settings, e.g. <code>output.retrieved_documents</code>.</p>
+        {% endif %}
+      {% endif %}
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>2. Run a full benchmark <span class="hint">— upload a test-case .xlsx and score retrieval accuracy</span></h2>
+    <form method="post" action="{{ url_for('batch') }}" enctype="multipart/form-data">
+      <div class="row">
+        <div class="field grow">
+          <label for="testcases">Test cases (.xlsx)</label>
+          <input type="file" id="testcases" name="testcases" accept=".xlsx" required>
+        </div>
+        <div class="field">
+          <label for="default_path">Default Path</label>
+          <select id="default_path" name="default_path">
+            <option value="">(use each row's Path)</option>
+            {% for p in valid_paths %}
+            <option value="{{ p }}">{{ p }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="default_lang">Default Language</label>
+          <input type="text" id="default_lang" name="default_lang" value="en">
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="top_k">Recall@k values</label>
+          <input type="text" id="top_k" name="top_k" value="1,3,5">
+        </div>
+        <div class="field">
+          <label for="delay">Delay between requests (s)</label>
+          <input type="number" id="delay" name="delay" value="0.2" step="0.1" min="0">
+        </div>
+        <div class="field">
+          <label for="limit">Limit rows (optional)</label>
+          <input type="number" id="limit" name="limit" min="1" placeholder="all rows">
+        </div>
+      </div>
+      {% include "_advanced_settings.html" %}
+      <button type="submit">Run benchmark</button>
+    </form>
+
+    {% if batch %}
+      {% if batch.error %}
+        <p class="error">{{ batch.error }}</p>
+      {% endif %}
+      {% if batch.summary %}
+        <div class="stat-row">
+          <div class="stat"><div class="n">{{ batch.summary.total }}</div><div class="l">Test cases</div></div>
+          <div class="stat"><div class="n">{{ batch.summary.errors }}</div><div class="l">Errors</div></div>
+          <div class="stat"><div class="n">{{ batch.summary.top1_pct }}%</div><div class="l">Top-1 accuracy</div></div>
+          <div class="stat"><div class="n">{{ batch.summary.mrr }}</div><div class="l">MRR</div></div>
+        </div>
+        <a class="download-link" href="{{ url_for('download', filename=batch.download_filename) }}">Download full results (.xlsx)</a>
+        <div class="table-scroll" style="margin-top:16px; max-height: 480px; overflow-y: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th><th>Path</th><th>Query</th><th>Expected</th>
+                <th>Retrieved #1</th><th>Rank</th><th>Top-1</th><th>Latency</th><th>Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in batch.results %}
+              <tr>
+                <td>{{ r.case.row_num }}</td>
+                <td>{{ r.case.path }}</td>
+                <td>{{ r.case.query }}</td>
+                <td>{{ r.case.expected_ids | join(", ") }}</td>
+                <td>{{ r.retrieved_id(0) }}</td>
+                <td>{{ r.rank if r.rank else "—" }}</td>
+                <td>
+                  {% if r.error %}
+                    <span class="badge bad">error</span>
+                  {% elif r.top1_correct %}
+                    <span class="badge ok">Y</span>
+                  {% else %}
+                    <span class="badge bad">N</span>
+                  {% endif %}
+                </td>
+                <td>{{ "%.0f"|format(r.latency_ms) if r.latency_ms is not none else "—" }} ms</td>
+                <td class="muted">{{ r.error }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+    {% endif %}
+  </div>
+
+</main>
+</body>
+</html>
