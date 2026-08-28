@@ -1,0 +1,43 @@
+<details>
+  <summary>Advanced settings (API URL, project IDs, auth headers, response parsing)</summary>
+  <div class="row">
+    <div class="field grow">
+      <label for="api_url">API URL</label>
+      <input type="text" id="api_url" name="api_url" value="{{ defaults.api_url }}">
+    </div>
+  </div>
+  <div class="row">
+    <div class="field">
+      <label for="project_id">project_id</label>
+      <input type="text" id="project_id" name="project_id" value="{{ defaults.project_id }}">
+    </div>
+    <div class="field">
+      <label for="cms_project_id">cms_project_id</label>
+      <input type="text" id="cms_project_id" name="cms_project_id" value="{{ defaults.cms_project_id }}">
+    </div>
+    <div class="field">
+      <label for="graph_name">single_graph_name</label>
+      <input type="text" id="graph_name" name="graph_name" value="{{ defaults.graph_name }}">
+    </div>
+  </div>
+  <div class="row">
+    <div class="field">
+      <label for="timeout">Timeout (s)</label>
+      <input type="number" id="timeout" name="timeout" value="30" min="1">
+    </div>
+    <div class="field">
+      <label for="retries">Retries</label>
+      <input type="number" id="retries" name="retries" value="2" min="0">
+    </div>
+    <div class="field grow">
+      <label for="response_list_path">Response list path override (optional)</label>
+      <input type="text" id="response_list_path" name="response_list_path" placeholder="e.g. output.retrieved_documents">
+    </div>
+  </div>
+  <div class="row">
+    <div class="field grow">
+      <label for="headers_raw">Extra request headers (one "Key: Value" per line, optional)</label>
+      <textarea id="headers_raw" name="headers_raw" rows="2" placeholder="Authorization: Bearer &lt;token&gt;"></textarea>
+    </div>
+  </div>
+</details>

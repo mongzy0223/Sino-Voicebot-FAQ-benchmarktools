@@ -1,9 +1,9 @@
 # Sino Voicebot FAQ Retrieval Benchmark
 
-A command-line tool that batch-tests the Sino voicebot's FAQ text-retrieval
-API (`text_retrieval_test` graph on `dev.setsailapi.com`) against a set of
-expected question/answer pairs, and scores the results (Top-1 accuracy,
-Recall@k, MRR).
+A command-line tool (and optional local web UI) that batch-tests the Sino
+voicebot's FAQ text-retrieval API (`text_retrieval_test` graph on
+`dev.setsailapi.com`) against a set of expected question/answer pairs, and
+scores the results (Top-1 accuracy, Recall@k, MRR).
 
 ## What it calls
 
@@ -49,11 +49,33 @@ with a body of the form:
 pip install -r requirements.txt
 ```
 
-Requires Python 3.9+, `requests`, and `openpyxl`.
+Requires Python 3.9+, `requests`, `openpyxl`, and (for the web UI) `flask`.
 
 If the API requires an API key or auth header, pass it with `--header`,
 e.g. `--header "Authorization: Bearer <token>"` (repeatable for multiple
 headers).
+
+## Web UI (optional)
+
+Prefer a browser to the command line? Run:
+
+```bash
+python3 app.py
+```
+
+then open **http://127.0.0.1:5000**. It has the same two workflows as the
+CLI — a single-query probe box (to check the API and response shape first)
+and a batch runner (upload a test-case `.xlsx`, get a scored summary,
+per-row results table, and a results file to download) — plus an
+"Advanced settings" panel per form for the API URL, project IDs, auth
+headers, timeout/retries, and a response-list-path override.
+
+This has to run locally rather than as a hosted page: browsers block a web
+page from calling an API on a different origin unless that API opts in via
+CORS, and `dev.setsailapi.com` doesn't. Running it with `python3 app.py`
+calls the API from your machine directly, the same way the CLI does — no
+request ever goes through a third-party server, and nothing is uploaded
+anywhere.
 
 ## 1. Inspect the live API first
 
