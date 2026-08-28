@@ -246,7 +246,7 @@
           <table>
             <thead>
               <tr>
-                <th>#</th><th>Path</th><th>Query</th><th>Expected</th>
+                <th>#</th><th>Sheet</th><th>Path</th><th>Lang</th><th>Query</th><th>Expected</th>
                 <th>Retrieved #1</th><th>Rank</th><th>Top-1</th><th>Latency</th><th>Error</th>
               </tr>
             </thead>
@@ -254,7 +254,9 @@
               {% for r in batch.results %}
               <tr>
                 <td>{{ r.case.row_num }}</td>
+                <td>{{ r.case.sheet }}</td>
                 <td>{{ r.case.path }}</td>
+                <td>{{ r.case.lang }}</td>
                 <td>{{ r.case.query }}</td>
                 <td>{{ r.case.expected_ids | join(", ") }}</td>
                 <td>{{ r.retrieved_id(0) }}</td>
