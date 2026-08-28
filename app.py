@@ -30,11 +30,13 @@ from sino_retrieval_benchmark import (
     DEFAULT_CMS_PROJECT_ID,
     DEFAULT_GRAPH_NAME,
     DEFAULT_PROJECT_ID,
+    ID_KEY_NAME,
+    RETRIEVED_TEXT_KEY_NAME,
     VALID_PATHS,
     TestResult,
     build_request_body,
     call_api,
-    extract_retrieved_list,
+    extract_match_data,
     load_testcases,
     parse_headers,
     score_result,
@@ -116,10 +118,12 @@ def probe():
     data, status, latency_ms, error = call_api(
         session, settings["api_url"], body, headers, settings["timeout"], settings["retries"]
     )
-    retrieved = []
+    retrieved, exact_match, confidence = [], None, None
     if data is not None:
         try:
-            retrieved = extract_retrieved_list(data, override_path=settings["response_list_path"])
+            retrieved, exact_match, confidence = extract_match_data(
+                data, ID_KEY_NAME, RETRIEVED_TEXT_KEY_NAME, override_path=settings["response_list_path"]
+            )
         except ValueError as exc:
             error = error or str(exc)
 
@@ -131,6 +135,8 @@ def probe():
             "error": error,
             "raw_response": data,
             "retrieved": retrieved,
+            "exact_match": exact_match,
+            "confidence": confidence,
         }
     )
     return render_template(
@@ -197,11 +203,15 @@ def batch():
         result = TestResult(case=case, http_status=status, latency_ms=latency_ms, error=error, raw_response=data)
         if data is not None and not error:
             try:
-                retrieved = extract_retrieved_list(data, override_path=settings["response_list_path"])
+                retrieved, exact_match, confidence = extract_match_data(
+                    data, ID_KEY_NAME, RETRIEVED_TEXT_KEY_NAME, override_path=settings["response_list_path"]
+                )
             except ValueError as exc:
-                retrieved = []
+                retrieved, exact_match, confidence = [], None, None
                 result.error = str(exc)
             result.retrieved = retrieved
+            result.exact_match = exact_match
+            result.confidence_score = confidence
             result.rank = score_result(case, retrieved)
         results.append(result)
         if delay and i < len(cases) - 1:
