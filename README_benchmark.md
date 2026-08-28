@@ -103,7 +103,7 @@ sheet with these columns:
 | `Query` | Yes | The exact question text sent to the API. |
 | `Expected_FAQ_ID` | Yes | The ground-truth `FAQ_ID`. Comma-separate multiple acceptable IDs, e.g. `MTG-002, MTG-003`. |
 | `Path` | Yes* | `FAQ_Mortgage` or `FAQ_Leasing`. *Can be omitted if you pass `--default-path`. |
-| `Language` | No | `query_lang` sent to the API (e.g. `en`, `zh-Hant`). Defaults to `en`, or `--default-lang`. |
+| `Language` | No | `query_lang` sent to the API (e.g. `en`, `zh`, `sc`). Defaults to `en`, or `--default-lang`. |
 | `Notes` | No | Free text, passed through to the results file. |
 
 Delete the example rows before running a real benchmark. An `Instructions`
@@ -117,7 +117,7 @@ automatically:
 
 - Every sheet with a recognizable header is loaded and combined into one run.
 - `query_lang` is inferred per sheet from a language suffix in its name
-  (`zh` → `zh-Hant`, `en` → `en`, `cn` → `zh-Hans` — edit
+  (`zh` → `zh`, `en` → `en`, `cn` → `sc` — edit
   `SHEET_NAME_LANG_SUFFIXES` in `sino_retrieval_benchmark.py` if your sheet
   names or language codes differ).
 - `Category` values (`Leasing`, `Mortgage`) are mapped to the API's `Path`
