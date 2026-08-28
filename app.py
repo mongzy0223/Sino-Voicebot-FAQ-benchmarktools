@@ -33,6 +33,7 @@ from sino_retrieval_benchmark import (
     ID_KEY_NAME,
     RETRIEVED_TEXT_KEY_NAME,
     VALID_PATHS,
+    TestCase,
     TestResult,
     build_request_body,
     call_api,
@@ -94,8 +95,13 @@ def probe():
     query = request.form.get("query", "").strip()
     path = request.form.get("path", "").strip()
     lang = request.form.get("lang", "en").strip() or "en"
+    expected_faq_id = request.form.get("expected_faq_id", "").strip()
+    expected_ids = [e.strip() for e in expected_faq_id.split(",") if e.strip()]
 
-    probe_result = {"query": query, "path": path, "lang": lang, "error": None}
+    probe_result = {
+        "query": query, "path": path, "lang": lang, "error": None,
+        "expected_faq_id": expected_faq_id, "expected_ids": expected_ids,
+    }
     if not query or path not in VALID_PATHS:
         probe_result["error"] = "A query and a valid Path are required."
         return render_template(
@@ -119,6 +125,7 @@ def probe():
         session, settings["api_url"], body, headers, settings["timeout"], settings["retries"]
     )
     retrieved, exact_match, confidence = [], None, None
+    rank = None
     if data is not None:
         try:
             retrieved, exact_match, confidence = extract_match_data(
@@ -126,6 +133,9 @@ def probe():
             )
         except ValueError as exc:
             error = error or str(exc)
+        if expected_ids:
+            temp_case = TestCase(row_num=0, query=query, expected_ids=expected_ids, path=path, lang=lang)
+            rank = score_result(temp_case, retrieved)
 
     probe_result.update(
         {
@@ -137,6 +147,10 @@ def probe():
             "retrieved": retrieved,
             "exact_match": exact_match,
             "confidence": confidence,
+            "matched_id": retrieved[0][ID_KEY_NAME] if retrieved else "",
+            "matched_response": retrieved[0][RETRIEVED_TEXT_KEY_NAME] if retrieved else "",
+            "other_suggestions": retrieved[1:],
+            "rank": rank,
         }
     )
     return render_template(

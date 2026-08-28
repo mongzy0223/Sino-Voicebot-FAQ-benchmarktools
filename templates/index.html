@@ -159,6 +159,11 @@
           <label for="lang">Language</label>
           <input type="text" id="lang" name="lang" value="{{ probe.lang if probe else 'en' }}">
         </div>
+        <div class="field">
+          <label for="expected_faq_id">Expected FAQ_ID (optional)</label>
+          <input type="text" id="expected_faq_id" name="expected_faq_id" placeholder="e.g. Q2"
+                 value="{{ probe.expected_faq_id if probe else '' }}">
+        </div>
       </div>
       {% include "_advanced_settings.html" %}
       <button type="submit">Send probe query</button>
@@ -169,26 +174,67 @@
         <p class="error">{{ probe.error }}</p>
       {% endif %}
       {% if probe.request_body %}
-        <p class="muted">HTTP {{ probe.status }} · {{ "%.0f"|format(probe.latency_ms) }} ms</p>
-        <div class="row">
-          <div class="field grow">
-            <label>Request body sent</label>
-            <pre>{{ probe.request_body | tojson(indent=2) }}</pre>
+        <p class="muted">HTTP {{ probe.status }} · {{ "%.0f"|format(probe.latency_ms) }} ms ·
+           API exact_match: <strong>{{ probe.exact_match }}</strong> ·
+           confidence: <strong>{{ probe.confidence }}</strong></p>
+
+        {% if probe.expected_ids %}
+          <div class="stat-row">
+            <div class="stat">
+              <div class="n">
+                {% if probe.rank == 1 %}<span class="badge ok">Correct</span>
+                {% elif probe.rank %}<span class="badge bad">Rank {{ probe.rank }}</span>
+                {% else %}<span class="badge bad">Not found</span>{% endif %}
+              </div>
+              <div class="l">vs expected {{ probe.expected_ids | join(", ") }}</div>
+            </div>
           </div>
-          <div class="field grow">
-            <label>Raw response</label>
-            <pre>{{ probe.raw_response | tojson(indent=2) if probe.raw_response is not none else "<no JSON body>" }}</pre>
-          </div>
+        {% endif %}
+
+        <label>Matched FAQ</label>
+        <div class="card" style="padding:14px 16px; margin-bottom:16px;">
+          <div><strong>FAQ_ID:</strong> {{ probe.matched_id or "—" }}</div>
+          <div class="muted" style="margin-top:6px;">{{ probe.matched_response or "No response text returned." }}</div>
         </div>
-        <p class="muted">API exact_match: <strong>{{ probe.exact_match }}</strong> ·
-           confidence_score: <strong>{{ probe.confidence }}</strong></p>
-        <label>Matched FAQ + candidates ({{ probe.retrieved | length }} item(s), matched one first)</label>
-        <pre>{{ probe.retrieved | tojson(indent=2) }}</pre>
-        {% if probe.request_body and not probe.retrieved %}
+
+        <label>Other Suggested FAQs</label>
+        {% if probe.other_suggestions %}
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>FAQ_ID</th><th>Response</th></tr></thead>
+              <tbody>
+                {% for doc in probe.other_suggestions %}
+                <tr>
+                  <td>{{ doc['FAQ_ID'] }}</td>
+                  <td class="muted">{{ doc['FAQ_answer_listening_friendly'] or "(no response returned by API for this candidate)" }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="muted">No other candidates returned.</p>
+        {% endif %}
+
+        {% if not probe.retrieved %}
           <p class="muted">No FAQ_ID could be extracted (no entity.FAQ_ID, similar_ids, or matching document
-             list). Check the raw response above and set "Response list path override" in Advanced settings
+             list). Check the raw response below and set "Response list path override" in Advanced settings
              if this graph config returns a different shape.</p>
         {% endif %}
+
+        <details style="margin-top:16px;">
+          <summary>Show raw request/response (debug)</summary>
+          <div class="row" style="margin-top:12px;">
+            <div class="field grow">
+              <label>Request body sent</label>
+              <pre>{{ probe.request_body | tojson(indent=2) }}</pre>
+            </div>
+            <div class="field grow">
+              <label>Raw response</label>
+              <pre>{{ probe.raw_response | tojson(indent=2) if probe.raw_response is not none else "<no JSON body>" }}</pre>
+            </div>
+          </div>
+        </details>
       {% endif %}
     {% endif %}
   </div>
