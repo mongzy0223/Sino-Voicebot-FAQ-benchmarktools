@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sino Voicebot FAQ Retrieval Benchmark</title>
+<style>
+  :root {
+    --border: #d9dde3;
+    --bg: #f7f8fa;
+    --card: #ffffff;
+    --text: #1f2430;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --accent-dark: #1d4ed8;
+    --good: #15803d;
+    --bad: #b91c1c;
+    --good-bg: #ecfdf3;
+    --bad-bg: #fef2f2;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    padding: 24px 32px;
+    border-bottom: 1px solid var(--border);
+    background: var(--card);
+  }
+  header h1 { margin: 0 0 4px; font-size: 20px; }
+  header p { margin: 0; color: var(--muted); font-size: 13px; }
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 24px 32px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+  }
+  .card h2 { margin-top: 0; font-size: 16px; }
+  .card h2 .hint { font-weight: normal; color: var(--muted); font-size: 12.5px; }
+  form { display: flex; flex-direction: column; gap: 12px; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 180px; }
+  .field.grow { flex: 3; min-width: 260px; }
+  label { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+  input[type=text], input[type=number], input[type=file], select, textarea {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 14px;
+    font-family: inherit;
+    background: #fff;
+    color: var(--text);
+  }
+  textarea { resize: vertical; font-family: ui-monospace, monospace; font-size: 12.5px; }
+  details { border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; }
+  details summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); }
+  details .row { margin-top: 12px; }
+  button {
+    align-self: flex-start;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 9px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { background: var(--accent-dark); }
+  button:disabled { background: var(--muted); cursor: not-allowed; }
+  .progress-track {
+    max-width: 420px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 999px;
+    transition: width 0.2s ease;
+  }
+  .error {
+    background: var(--bad-bg);
+    color: var(--bad);
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13.5px;
+  }
+  pre {
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 14px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 12.5px;
+    max-height: 420px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td {
+    border-bottom: 1px solid var(--border);
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { color: var(--muted); font-weight: 600; background: #fafbfc; position: sticky; top: 0; }
+  .table-scroll { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .badge.ok { background: var(--good-bg); color: var(--good); }
+  .badge.bad { background: var(--bad-bg); color: var(--bad); }
+  .stat-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .stat {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    min-width: 120px;
+  }
+  .stat .n { font-size: 22px; font-weight: 700; }
+  .stat .l { font-size: 12px; color: var(--muted); }
+  .download-link {
+    display: inline-block;
+    margin-top: 12px;
+    background: var(--good);
+    color: #fff;
+    text-decoration: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 13.5px;
+    font-weight: 600;
+  }
+  .muted { color: var(--muted); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sino Voicebot FAQ Retrieval Benchmark</h1>
+  <p>Runs locally · calls dev.setsailapi.com's text_retrieval_test graph server-side · results never leave your machine</p>
+</header>
+<main>
+
+  <div class="card">
+    <h2>1. Probe a single query <span class="hint">— confirm the API and response shape before a full run</span></h2>
+    <form method="post" action="{{ url_for('probe') }}">
+      <div class="row">
+        <div class="field grow">
+          <label for="query">Query</label>
+          <input type="text" id="query" name="query" placeholder="e.g. What is the current mortgage interest rate?"
+                 value="{{ probe.query if probe else '' }}" required>
+        </div>
+        <div class="field">
+          <label for="path">Path</label>
+          <select id="path" name="path" required>
+            <option value="">Select…</option>
+            {% for p in valid_paths %}
+            <option value="{{ p }}" {% if probe and probe.path == p %}selected{% endif %}>{{ p }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="lang">Language</label>
+          <input type="text" id="lang" name="lang" value="{{ probe.lang if probe else 'en' }}">
+        </div>
+        <div class="field">
+          <label for="expected_faq_id">Expected FAQ_ID (optional)</label>
+          <input type="text" id="expected_faq_id" name="expected_faq_id" placeholder="e.g. Q2"
+                 value="{{ probe.expected_faq_id if probe else '' }}">
+        </div>
+      </div>
+      {% include "_advanced_settings.html" %}
+      <button type="submit">Send probe query</button>
+    </form>
+
+    {% if probe %}
+      {% if probe.error %}
+        <p class="error">{{ probe.error }}</p>
+      {% endif %}
+      {% if probe.request_body %}
+        <p class="muted">HTTP {{ probe.status }} · {{ "%.0f"|format(probe.latency_ms) }} ms ·
+           API exact_match: <strong>{{ probe.exact_match }}</strong> ·
+           confidence: <strong>{{ probe.confidence }}</strong></p>
+
+        {% if probe.expected_ids %}
+          <div class="stat-row">
+            <div class="stat">
+              <div class="n">
+                {% if probe.rank == 1 %}<span class="badge ok">Correct</span>
+                {% elif probe.rank %}<span class="badge bad">Rank {{ probe.rank }}</span>
+                {% else %}<span class="badge bad">Not found</span>{% endif %}
+              </div>
+              <div class="l">vs expected {{ probe.expected_ids | join(", ") }}</div>
+            </div>
+          </div>
+        {% endif %}
+
+        <label>Matched FAQ</label>
+        <div class="card" style="padding:14px 16px; margin-bottom:16px;">
+          <div><strong>FAQ_ID:</strong> {{ probe.matched_id or "—" }}</div>
+          <div class="muted" style="margin-top:6px;">{{ probe.matched_response or "No response text returned." }}</div>
+        </div>
+
+        <label>Other Suggested FAQs</label>
+        {% if probe.other_suggestions %}
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>FAQ_ID</th><th>Response</th></tr></thead>
+              <tbody>
+                {% for doc in probe.other_suggestions %}
+                <tr>
+                  <td>{{ doc['FAQ_ID'] }}</td>
+                  <td class="muted">{{ doc['FAQ_answer_listening_friendly'] or "(no response returned by API for this candidate)" }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="muted">No other candidates returned.</p>
+        {% endif %}
+
+        {% if not probe.retrieved %}
+          <p class="muted">No FAQ_ID could be extracted (no entity.FAQ_ID, similar_ids, or matching document
+             list). Check the raw response below and set "Response list path override" in Advanced settings
+             if this graph config returns a different shape.</p>
+        {% endif %}
+
+        <details style="margin-top:16px;">
+          <summary>Show raw request/response (debug)</summary>
+          <div class="row" style="margin-top:12px;">
+            <div class="field grow">
+              <label>Request body sent</label>
+              <pre>{{ probe.request_body | tojson(indent=2) }}</pre>
+            </div>
+            <div class="field grow">
+              <label>Raw response</label>
+              <pre>{{ probe.raw_response | tojson(indent=2) if probe.raw_response is not none else "<no JSON body>" }}</pre>
+            </div>
+          </div>
+        </details>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>2. Run a full benchmark <span class="hint">— upload a test-case .xlsx and score retrieval accuracy</span></h2>
+    <form id="batchForm" enctype="multipart/form-data">
+      <div class="row">
+        <div class="field grow">
+          <label for="testcases">Test cases (.xlsx)</label>
+          <input type="file" id="testcases" name="testcases" accept=".xlsx" required>
+        </div>
+        <div class="field">
+          <label for="default_path">Default Path</label>
+          <select id="default_path" name="default_path">
+            <option value="">(use each row's Path)</option>
+            {% for p in valid_paths %}
+            <option value="{{ p }}">{{ p }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="default_lang">Default Language</label>
+          <input type="text" id="default_lang" name="default_lang" value="en">
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="top_k">Recall@k values</label>
+          <input type="text" id="top_k" name="top_k" value="1,3,5">
+        </div>
+        <div class="field">
+          <label for="delay">Delay between requests (s)</label>
+          <input type="number" id="delay" name="delay" value="0.2" step="0.1" min="0">
+        </div>
+        <div class="field">
+          <label for="limit">Limit rows (optional)</label>
+          <input type="number" id="limit" name="limit" min="1" placeholder="all rows">
+        </div>
+      </div>
+      {% include "_advanced_settings.html" %}
+      <button type="submit" id="batchSubmitBtn">Run benchmark</button>
+      <p id="batchFormError" class="error" style="display:none;"></p>
+      <div id="batchProgressWrap" style="display:none;">
+        <div class="progress-track">
+          <div id="batchProgressFill" class="progress-fill" style="width:0%;"></div>
+        </div>
+        <p id="batchProgressLabel" class="muted" style="margin-top:6px;">Starting…</p>
+      </div>
+    </form>
+
+    {% if batch %}
+      {% if batch.error %}
+        <p class="error">{{ batch.error }}</p>
+      {% endif %}
+      {% if batch.summary %}
+        <div class="stat-row">
+          <div class="stat"><div class="n">{{ batch.summary.total }}</div><div class="l">Test cases</div></div>
+          <div class="stat"><div class="n">{{ batch.summary.errors }}</div><div class="l">Errors</div></div>
+          <div class="stat"><div class="n">{{ batch.summary.top1_pct }}%</div><div class="l">Top-1 accuracy</div></div>
+          <div class="stat"><div class="n">{{ batch.summary.mrr }}</div><div class="l">MRR</div></div>
+        </div>
+        <a class="download-link" href="{{ url_for('download', filename=batch.download_filename) }}">Download full results (.xlsx)</a>
+        <p class="muted">Hover a truncated cell to see the full text. Full detail (including every
+           suggested FAQ and its response) is in the downloaded .xlsx.</p>
+        <div class="table-scroll" style="margin-top:8px; max-height: 560px; overflow-y: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th><th>Sheet</th><th>Path</th><th>Lang</th><th>Query</th><th>Expected</th>
+                <th>Correct</th><th>Rank</th>
+                <th>Matched FAQ_ID</th><th>Matched Response</th>
+                <th>API Exact Match</th><th>Confidence</th>
+                <th>Other Suggested FAQs</th>
+                <th>Latency</th><th>Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in batch.results %}
+              <tr>
+                <td>{{ r.case.row_num }}</td>
+                <td>{{ r.case.sheet }}</td>
+                <td>{{ r.case.path }}</td>
+                <td>{{ r.case.lang }}</td>
+                <td>{{ r.case.query }}</td>
+                <td>{{ r.case.expected_ids | join(", ") }}</td>
+                <td>
+                  {% if r.error %}
+                    <span class="badge bad">error</span>
+                  {% elif r.top1_correct %}
+                    <span class="badge ok">Y</span>
+                  {% else %}
+                    <span class="badge bad">N</span>
+                  {% endif %}
+                </td>
+                <td>{{ r.rank if r.rank else "—" }}</td>
+                <td>{{ r.matched_id or "—" }}</td>
+                <td style="max-width:240px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
+                    title="{{ r.matched_response }}">{{ r.matched_response|truncate(80) or "—" }}</td>
+                <td>{{ "—" if r.exact_match is none else ("Y" if r.exact_match else "N") }}</td>
+                <td>{{ "%.2f"|format(r.confidence_score) if r.confidence_score is not none else "—" }}</td>
+                <td style="max-width:320px;">
+                  {% if r.other_suggestions %}
+                    {% for s in r.other_suggestions %}
+                      <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
+                           title="{{ s.faq_id }}: {{ s.response }}">
+                        <strong>{{ s.faq_id }}</strong>: {{ s.response|truncate(60) }}
+                      </div>
+                    {% endfor %}
+                  {% else %}
+                    <span class="muted">—</span>
+                  {% endif %}
+                </td>
+                <td>{{ "%.0f"|format(r.latency_ms) if r.latency_ms is not none else "—" }} ms</td>
+                <td class="muted">{{ r.error }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+    {% endif %}
+  </div>
+
+</main>
+<script>
+document.getElementById('batchForm').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var form = e.target;
+  var btn = document.getElementById('batchSubmitBtn');
+  var errBox = document.getElementById('batchFormError');
+  var progressWrap = document.getElementById('batchProgressWrap');
+  var progressFill = document.getElementById('batchProgressFill');
+  var progressLabel = document.getElementById('batchProgressLabel');
+
+  function showError(msg) {
+    btn.disabled = false;
+    btn.textContent = 'Run benchmark';
+    progressWrap.style.display = 'none';
+    errBox.textContent = msg;
+    errBox.style.display = 'block';
+  }
+
+  errBox.style.display = 'none';
+  errBox.textContent = '';
+  btn.disabled = true;
+  btn.textContent = 'Starting…';
+  progressWrap.style.display = 'block';
+  progressFill.style.width = '0%';
+  progressLabel.textContent = 'Starting…';
+
+  fetch('/batch/start', { method: 'POST', body: new FormData(form) })
+    .then(function (resp) { return resp.json().then(function (data) { return { ok: resp.ok, data: data }; }); })
+    .then(function (result) {
+      if (!result.ok || result.data.error) {
+        showError(result.data.error || 'Failed to start the benchmark.');
+        return;
+      }
+      var jobId = result.data.job_id;
+      var total = result.data.total;
+
+      var poll = setInterval(function () {
+        fetch('/batch/progress/' + jobId)
+          .then(function (resp) { return resp.json().then(function (data) { return { ok: resp.ok, data: data }; }); })
+          .then(function (result) {
+            if (!result.ok) {
+              clearInterval(poll);
+              showError(result.data.error || 'Progress check failed.');
+              return;
+            }
+            var data = result.data;
+            var current = data.current || 0;
+            var pct = total ? Math.round((current / total) * 100) : 0;
+            progressFill.style.width = pct + '%';
+            progressLabel.textContent = current + ' / ' + total + ' (' + pct + '%)';
+            btn.textContent = 'Running… ' + pct + '%';
+
+            if (data.status === 'done') {
+              clearInterval(poll);
+              window.location.href = '/batch/result/' + jobId;
+            } else if (data.status === 'error') {
+              clearInterval(poll);
+              showError(data.error || 'The benchmark run failed.');
+            }
+          })
+          .catch(function (err) {
+            clearInterval(poll);
+            showError('Lost connection while polling progress: ' + err);
+          });
+      }, 600);
+    })
+    .catch(function (err) {
+      showError('Could not reach the server: ' + err);
+    });
+});
+</script>
+</body>
+</html>
