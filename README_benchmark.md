@@ -31,17 +31,42 @@ with a body of the form:
 
 `path` is `FAQ_Mortgage` or `FAQ_Leasing`, set per test case.
 
-> **Note on response parsing.** This tool was built without the ability to
-> make a live call to `dev.setsailapi.com` (network policy in the build
-> environment blocked it), so the exact JSON shape of a `slim_response`
-> reply was not verified directly. `extract_retrieved_list()` in
-> `sino_retrieval_benchmark.py` handles this by recursively searching the
-> response for a list of objects that each carry an `FAQ_ID` field, which
-> should work for most reasonable response shapes. **Before running a full
-> batch, use `--probe-query` (below) to print the real raw response** and
-> confirm the auto-detected list looks right. If it doesn't, pass
-> `--response-list-path` with the dotted key path to the correct list (see
-> Troubleshooting).
+### How the response is read
+
+Confirmed against a live call — the API does **not** return a ranked list
+of retrieved documents. It resolves the query to a single matched FAQ and
+hands back:
+
+```jsonc
+{
+  "exact_match": true,
+  "similar_ids": ["2", "46", "19"],       // candidate FAQ_IDs, matched one usually first
+  "entity": {"FAQ_ID": "2", "lang": "en"}, // the matched FAQ_ID
+  "bot_responses": [
+    {"answer": "...", "confidence_score": 1, ...}  // that FAQ's answer text
+  ],
+  // "actions"[0].data.message.content and "message.series"[0].text carry
+  // the same answer text redundantly
+}
+```
+
+`extract_match_data()` in `sino_retrieval_benchmark.py` reads
+`entity.FAQ_ID` as the matched FAQ, `bot_responses[0].answer` as its
+response text, and `similar_ids` as the other candidate IDs (no response
+text is returned for those — only their IDs). `exact_match` and
+`confidence_score` are surfaced as their own columns. A generic
+list-of-documents search is kept as a fallback for other graph configs
+that might return an actual document list, and `--response-list-path`
+overrides both if a graph config returns something else entirely — use
+`--probe-query` (below) to check.
+
+**The CMS's real `FAQ_ID` values are bare numbers** (e.g. `"2"`, not
+`"Q2"`). If your test-case sheet uses `Q`-prefixed reference numbers (like
+Sino's own benchmark template's `FAQ Reference No.` column), the tool
+strips a leading `Q`/`q` before comparing IDs so `Q2` matches the API's
+`2` — see `_normalize_faq_id()`. IDs that don't look like `Q<number>` are
+compared as-is (case-insensitive), so the original `MTG-001`-style
+template is unaffected.
 
 ## Setup
 
@@ -166,11 +191,14 @@ Useful flags:
 **Details** — one row per test case: the query, expected FAQ_ID, Top-1
 correct (Y/N), the rank at which the expected answer was found (blank if
 not found), reciprocal rank, Hit@k for each configured k, the
-**Matched_FAQ_ID** / **Matched_Response** (the retrieved FAQ that matched
-the expected answer, and its actual answer text), the full ranked
-**Suggested_1..N_FAQ_ID** / **Suggested_i_Response** pairs (every candidate
-the API returned, in rank order — this includes the matched one at its
-rank, plus the alternatives), latency, HTTP status, and any error.
+**Matched_FAQ_ID** / **Matched_Response** (the FAQ the API actually
+matched — `entity.FAQ_ID` — and its answer text from `bot_responses`),
+**API_Exact_Match** / **Confidence_Score** (the API's own verdict — useful
+to tell "wrong FAQ" apart from "the API fell back / wasn't confident"),
+the full ranked **Suggested_1..N_FAQ_ID** / **Suggested_i_Response** pairs
+(the matched FAQ plus every other candidate ID from `similar_ids`, in
+order — response text is only available for the matched one, since that's
+all the API returns), latency, HTTP status, and any error.
 
 **Summary** — aggregate metrics, both overall and split by `FAQ_Mortgage` /
 `FAQ_Leasing`:
@@ -190,14 +218,12 @@ re-run if the error count is non-trivial.
 
 ## Troubleshooting
 
-**Auto-detected retrieved list is empty or wrong.** Run `--probe-query`
-and read the raw response. Find the key path to the list of retrieved FAQ
-objects (each should contain an `FAQ_ID` field) and pass it with
-`--response-list-path`, using dots to walk into nested objects, e.g.:
-
-```bash
---response-list-path output.retrieved_documents
-```
+**Matched FAQ / candidates come back empty.** Run `--probe-query` and read
+the raw response. Normally `entity.FAQ_ID` and `similar_ids` are all the
+tool needs — if your graph config returns something else entirely (no
+`entity`, no `similar_ids`, no document list), pass `--response-list-path`
+with the dotted key path to whatever list of `{FAQ_ID: ...}` objects it
+does return, e.g. `--response-list-path output.retrieved_documents`.
 
 **All rows show `HTTP None` with a connection error.** Check network
 access to `dev.setsailapi.com` and any required auth headers. If you're

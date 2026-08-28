@@ -180,11 +180,14 @@
             <pre>{{ probe.raw_response | tojson(indent=2) if probe.raw_response is not none else "<no JSON body>" }}</pre>
           </div>
         </div>
-        <label>Auto-detected retrieved list ({{ probe.retrieved | length }} item(s))</label>
+        <p class="muted">API exact_match: <strong>{{ probe.exact_match }}</strong> ·
+           confidence_score: <strong>{{ probe.confidence }}</strong></p>
+        <label>Matched FAQ + candidates ({{ probe.retrieved | length }} item(s), matched one first)</label>
         <pre>{{ probe.retrieved | tojson(indent=2) }}</pre>
         {% if probe.request_body and not probe.retrieved %}
-          <p class="muted">No list containing FAQ_ID was found automatically. Check the raw response above and set
-             "Response list path override" in Advanced settings, e.g. <code>output.retrieved_documents</code>.</p>
+          <p class="muted">No FAQ_ID could be extracted (no entity.FAQ_ID, similar_ids, or matching document
+             list). Check the raw response above and set "Response list path override" in Advanced settings
+             if this graph config returns a different shape.</p>
         {% endif %}
       {% endif %}
     {% endif %}
@@ -251,6 +254,7 @@
                 <th>#</th><th>Sheet</th><th>Path</th><th>Lang</th><th>Query</th><th>Expected</th>
                 <th>Correct</th><th>Rank</th>
                 <th>Matched FAQ_ID</th><th>Matched Response</th>
+                <th>API Exact Match</th><th>Confidence</th>
                 <th>Other Suggested FAQs</th>
                 <th>Latency</th><th>Error</th>
               </tr>
@@ -277,6 +281,8 @@
                 <td>{{ r.matched_id or "—" }}</td>
                 <td style="max-width:240px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
                     title="{{ r.matched_response }}">{{ r.matched_response|truncate(80) or "—" }}</td>
+                <td>{{ "—" if r.exact_match is none else ("Y" if r.exact_match else "N") }}</td>
+                <td>{{ "%.2f"|format(r.confidence_score) if r.confidence_score is not none else "—" }}</td>
                 <td style="max-width:320px;">
                   {% if r.other_suggestions %}
                     {% for s in r.other_suggestions %}

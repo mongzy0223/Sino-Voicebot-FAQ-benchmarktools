@@ -104,6 +104,8 @@ class TestResult:
     http_status: Optional[int] = None
     error: str = ""
     raw_response: Any = None
+    exact_match: Optional[bool] = None
+    confidence_score: Optional[float] = None
 
     @property
     def top1_correct(self) -> bool:
@@ -148,13 +150,26 @@ class TestResult:
 # --------------------------------------------------------------------------- #
 # Response parsing
 #
-# The exact JSON shape returned by the graph endpoint was not verified
-# against a live call (this environment's network policy blocks the host).
-# `extract_retrieved_list` therefore tries a handful of known/likely key
-# names first, then falls back to a recursive search for a list of dicts
-# that carry the id_key_name field. Use --response-list-path to override
-# once you've confirmed the real shape (see --probe-query), and --save-raw
-# to keep every raw response for offline inspection.
+# Confirmed against a live call: the API does NOT return a ranked list of
+# retrieved documents. It resolves the query to a single matched FAQ and
+# hands back:
+#
+#   response_json["entity"][id_key_name]  -> the matched FAQ_ID
+#   response_json["bot_responses"][0]     -> {"answer": <response text>,
+#                                              "confidence_score": <float>, ...}
+#   response_json["similar_ids"]          -> other candidate FAQ_IDs, matched
+#                                             one usually first; no answer text
+#                                             is returned for these
+#   response_json["exact_match"]          -> whether the API considers this an
+#                                             exact match
+#
+# extract_match_data() normalizes this into the same list[{id_key: ...,
+# response_key: ...}] shape used everywhere else (matched item first, answer
+# text only available for it), so scoring/rank/recall@k keep working
+# unchanged. A generic list-of-documents search is kept as a fallback for
+# other graph configs that really do return a document list, and
+# --response-list-path overrides both for anything else. --save-raw keeps
+# every raw response for offline inspection.
 # --------------------------------------------------------------------------- #
 
 LIKELY_LIST_KEYS = [
@@ -201,23 +216,72 @@ def _find_id_list(obj: Any, id_key: str, _depth: int = 0) -> Optional[list[dict]
     return None
 
 
-def extract_retrieved_list(
-    response_json: Any, id_key: str = ID_KEY_NAME, override_path: Optional[str] = None
-) -> list[dict]:
+def _extract_bot_response(response_json: dict) -> tuple[str, Optional[float]]:
+    """Pull the matched FAQ's answer text + confidence score out of the response."""
+    bot_responses = response_json.get("bot_responses")
+    if isinstance(bot_responses, list) and bot_responses and isinstance(bot_responses[0], dict):
+        first = bot_responses[0]
+        text = first.get("answer") or first.get("model_output") or first.get("raw_ans") or ""
+        return str(text), first.get("confidence_score")
+    # Redundant fallbacks seen carrying the same text in the same response.
+    actions = response_json.get("actions")
+    if isinstance(actions, list) and actions and isinstance(actions[0], dict):
+        data = actions[0].get("data")
+        message = data.get("message") if isinstance(data, dict) else None
+        if isinstance(message, dict) and message.get("content"):
+            return str(message["content"]), None
+    return "", None
+
+
+def extract_match_data(
+    response_json: Any,
+    id_key: str = ID_KEY_NAME,
+    response_key: str = RETRIEVED_TEXT_KEY_NAME,
+    override_path: Optional[str] = None,
+) -> tuple[list[dict], Optional[bool], Optional[float]]:
+    """Returns (retrieved, exact_match, confidence_score). See module note above."""
+    exact_match = response_json.get("exact_match") if isinstance(response_json, dict) else None
+    matched_response, confidence = (
+        _extract_bot_response(response_json) if isinstance(response_json, dict) else ("", None)
+    )
+
     if override_path:
         candidate = _get_by_dotted_path(response_json, override_path)
         if isinstance(candidate, list):
-            return candidate
+            return candidate, exact_match, confidence
         raise ValueError(
             f"--response-list-path {override_path!r} did not resolve to a list "
             f"(got {type(candidate).__name__}). Use --probe-query to inspect the real shape."
         )
+
     if isinstance(response_json, list):
-        return response_json
+        return response_json, exact_match, confidence
+    if not isinstance(response_json, dict):
+        return [], exact_match, confidence
+
+    entity = response_json.get("entity")
+    matched_id = entity.get(id_key) if isinstance(entity, dict) else None
+    similar_ids = response_json.get("similar_ids")
+
+    ordered_ids: list[str] = []
+    if matched_id is not None:
+        ordered_ids.append(str(matched_id))
+    if isinstance(similar_ids, list):
+        for sid in similar_ids:
+            sid_str = str(sid)
+            if sid_str not in ordered_ids:
+                ordered_ids.append(sid_str)
+
+    if ordered_ids:
+        retrieved = [
+            {id_key: fid, response_key: matched_response if i == 0 else ""}
+            for i, fid in enumerate(ordered_ids)
+        ]
+        return retrieved, exact_match, confidence
+
+    # Fallback for other graph configs that return an actual document list.
     found = _find_id_list(response_json, id_key)
-    if found is not None:
-        return found
-    return []
+    return (found or []), exact_match, confidence
 
 
 # --------------------------------------------------------------------------- #
@@ -425,10 +489,22 @@ def load_testcases(path: Path, default_path: Optional[str], default_lang: str) -
 # Scoring
 # --------------------------------------------------------------------------- #
 
+def _normalize_faq_id(value: Any) -> str:
+    """
+    'Q2' and '2' must compare equal: the CMS's real FAQ_ID values are bare
+    numbers (confirmed against a live call, e.g. entity.FAQ_ID = "2"), while
+    Sino's own benchmark template labels them "FAQ Reference No." as "Q2".
+    Strip a leading Q/q (with an optional separator) before comparing.
+    """
+    text = str(value).strip()
+    m = re.match(r"^[Qq][-_]?(\d+)$", text)
+    return m.group(1) if m else text.lower()
+
+
 def score_result(case: TestCase, retrieved: list[dict]) -> Optional[int]:
-    expected_set = {e.lower() for e in case.expected_ids}
+    expected_set = {_normalize_faq_id(e) for e in case.expected_ids}
     for i, doc in enumerate(retrieved):
-        doc_id = str(doc.get(ID_KEY_NAME, "")).strip().lower()
+        doc_id = _normalize_faq_id(doc.get(ID_KEY_NAME, ""))
         if doc_id in expected_set:
             return i + 1
     return None
@@ -455,7 +531,7 @@ def write_results(
         "Top1_Correct", "Rank_of_Expected", "Reciprocal_Rank",
     ]
     header += [f"Hit@{k}" for k in top_ks]
-    header += ["Matched_FAQ_ID", "Matched_Response"]
+    header += ["Matched_FAQ_ID", "Matched_Response", "API_Exact_Match", "Confidence_Score"]
     for i in range(1, max_retrieved_cols + 1):
         header += [f"Suggested_{i}_FAQ_ID", f"Suggested_{i}_Response"]
     header += ["Latency_ms", "HTTP_Status", "Error", "Notes"]
@@ -475,7 +551,12 @@ def write_results(
             round(r.reciprocal_rank, 4),
         ]
         row += ["Y" if r.hit_at(k) else "N" for k in top_ks]
-        row += [r.matched_id, r.matched_response]
+        row += [
+            r.matched_id,
+            r.matched_response,
+            "" if r.exact_match is None else ("Y" if r.exact_match else "N"),
+            round(r.confidence_score, 4) if r.confidence_score is not None else "",
+        ]
         for i in range(max_retrieved_cols):
             row += [r.retrieved_id(i), r.retrieved_response(i)]
         row += [
@@ -492,7 +573,7 @@ def write_results(
         [20, 6, 14, 10, 45, 16]  # Sheet, Row, Path, Language, Query, Expected_FAQ_ID
         + [12, 16, 16]  # Top1_Correct, Rank_of_Expected, Reciprocal_Rank
         + [8] * len(top_ks)  # Hit@k...
-        + [16, 45]  # Matched_FAQ_ID, Matched_Response
+        + [16, 45, 14, 14]  # Matched_FAQ_ID, Matched_Response, API_Exact_Match, Confidence_Score
         + [16, 45] * max_retrieved_cols  # Suggested_i_FAQ_ID, Suggested_i_Response
         + [12, 12, 40, 25]  # Latency_ms, HTTP_Status, Error, Notes
     )
@@ -632,14 +713,17 @@ def main():
         print("\nRaw response:")
         print(json.dumps(data, indent=2, ensure_ascii=False) if data is not None else "<no JSON body>")
         if data is not None:
-            found = extract_retrieved_list(data, ID_KEY_NAME, args.response_list_path)
-            print(f"\nAuto-detected retrieved list ({len(found)} item(s)):")
+            found, exact_match, confidence = extract_match_data(
+                data, ID_KEY_NAME, RETRIEVED_TEXT_KEY_NAME, args.response_list_path
+            )
+            print(f"\nAPI exact_match: {exact_match}   confidence_score: {confidence}")
+            print(f"\nMatched FAQ + candidates ({len(found)} item(s), matched one first):")
             print(json.dumps(found, indent=2, ensure_ascii=False))
             if not found:
                 print(
-                    "\nNo list containing an 'FAQ_ID' field was found automatically. "
-                    "Inspect the raw response above and pass --response-list-path "
-                    "(e.g. --response-list-path data.documents) when running the full benchmark."
+                    "\nNo FAQ_ID could be extracted (no entity.FAQ_ID, similar_ids, or matching "
+                    "document list). Inspect the raw response above and pass --response-list-path "
+                    "if this graph config returns a different shape."
                 )
         return
 
@@ -667,11 +751,15 @@ def main():
         result = TestResult(case=case, http_status=status, latency_ms=latency_ms, error=error, raw_response=data)
         if data is not None and not error:
             try:
-                retrieved = extract_retrieved_list(data, ID_KEY_NAME, args.response_list_path)
+                retrieved, exact_match, confidence = extract_match_data(
+                    data, ID_KEY_NAME, RETRIEVED_TEXT_KEY_NAME, args.response_list_path
+                )
             except ValueError as exc:
-                retrieved = []
+                retrieved, exact_match, confidence = [], None, None
                 result.error = str(exc)
             result.retrieved = retrieved
+            result.exact_match = exact_match
+            result.confidence_score = confidence
             result.rank = score_result(case, retrieved)
         if result.error:
             print(f"[{i}/{len(cases)}] row {case.row_num} ({case.path}): ERROR: {result.error}")
