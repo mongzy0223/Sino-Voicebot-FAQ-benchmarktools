@@ -89,11 +89,16 @@ python3 app.py
 ```
 
 then open **http://127.0.0.1:5000**. It has the same two workflows as the
-CLI — a single-query probe box (to check the API and response shape first)
-and a batch runner (upload a test-case `.xlsx`, get a scored summary,
-per-row results table, and a results file to download) — plus an
-"Advanced settings" panel per form for the API URL, project IDs, auth
-headers, timeout/retries, and a response-list-path override.
+CLI — a single-query probe box (query + Path + Language, plus an optional
+Expected FAQ_ID field so a single probe also shows Correct/Rank against a
+known answer, matching your test-case sheet's `FAQ Reference No.`) and a
+batch runner (upload a test-case `.xlsx`, get a scored summary, per-row
+results table, and a results file to download) — plus an "Advanced
+settings" panel per form for the API URL, project IDs, auth headers,
+timeout/retries, and a response-list-path override. The probe result shows
+the matched FAQ and other suggested FAQs in a plain results view; the raw
+request/response JSON is tucked into a collapsed "Show raw request/response
+(debug)" section if you need it.
 
 This has to run locally rather than as a hosted page: browsers block a web
 page from calling an API on a different origin unless that API opts in via
