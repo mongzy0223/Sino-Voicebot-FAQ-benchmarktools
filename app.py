@@ -39,6 +39,7 @@ from sino_retrieval_benchmark import (
     build_request_body,
     call_api,
     extract_match_data,
+    has_direct_match,
     load_testcases,
     parse_headers,
     score_result,
@@ -189,6 +190,7 @@ def _run_batch_job(job_id: str, cases: list, settings: dict, headers: dict, top_
                 result.retrieved = retrieved
                 result.exact_match = exact_match
                 result.confidence_score = confidence
+                result.direct_answer = has_direct_match(data, ID_KEY_NAME)
                 result.rank = score_result(case, retrieved)
             results.append(result)
             with JOBS_LOCK:

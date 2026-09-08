@@ -60,13 +60,17 @@ that might return an actual document list, and `--response-list-path`
 overrides both if a graph config returns something else entirely — use
 `--probe-query` (below) to check.
 
-**The CMS's real `FAQ_ID` values are bare numbers** (e.g. `"2"`, not
-`"Q2"`). If your test-case sheet uses `Q`-prefixed reference numbers (like
-Sino's own benchmark template's `FAQ Reference No.` column), the tool
-strips a leading `Q`/`q` before comparing IDs so `Q2` matches the API's
-`2` — see `_normalize_faq_id()`. IDs that don't look like `Q<number>` are
-compared as-is (case-insensitive), so the original `MTG-001`-style
-template is unaffected.
+**The CMS's real `FAQ_ID` values are usually bare numbers** (e.g. `"2"`,
+not `"Q2"`), though the API has also been observed returning a zero-padded
+`"FAQ_001"` form on some rows. If your test-case sheet uses `Q`-prefixed
+reference numbers (like Sino's own benchmark template's `FAQ Reference No.`
+column), the tool strips an optional `FAQ`/`Q` prefix, any separator, and
+leading zeros before comparing IDs, so `Q2`, `2`, and `FAQ_002` all compare
+equal — see `_normalize_faq_id()`. IDs that don't look like `Q<number>` or
+`FAQ_<number>` are compared as-is (case-insensitive), so the original
+`MTG-001`-style template is unaffected. A response whose `entity.FAQ_ID` is
+present but blank is treated as no match rather than as a phantom
+candidate — it's dropped instead of being counted.
 
 ## Setup
 
@@ -194,6 +198,13 @@ Useful flags:
   that omit `Path` / `Language`.
 - `--response-list-path data.documents` — override auto-detection of the
   retrieved-documents list in the response (see Troubleshooting).
+- `--faq-file FAQ_Leasing.xlsx` — a FAQ workbook (`FAQ_ID` / `FAQ` columns,
+  one sheet per language) used **only to annotate and sanity-check** the
+  run, never to score. Adds `Expected_FAQ_Question` / `Matched_FAQ_Question`
+  columns to the output so you can see at a glance whether a "wrong" row is
+  actually a bad bot answer or a test-case label that no longer points at a
+  real FAQ, and prints a warning up front listing any expected FAQ IDs that
+  don't exist in the file at all.
 
 ## Output
 
@@ -201,7 +212,9 @@ Useful flags:
 
 **Details** — one row per test case: the query, expected FAQ_ID, Top-1
 correct (Y/N), the rank at which the expected answer was found (blank if
-not found), reciprocal rank, Hit@k for each configured k, the
+not found), reciprocal rank, Hit@k for each configured k, whether the API
+committed to a direct answer versus only offering suggestions
+(`Direct_Answer`), the
 **Matched_FAQ_ID** / **Matched_Response** (the FAQ the API actually
 matched — `entity.FAQ_ID` — and its answer text from `bot_responses`),
 **API_Exact_Match** / **Confidence_Score** (the API's own verdict — useful
@@ -220,6 +233,15 @@ all the API returns), latency, HTTP status, and any error.
   the top k results.
 - **MRR** (Mean Reciprocal Rank) — average of `1/rank` across all queries
   (0 if never found).
+- **Exact match but scored wrong (%)** — of the rows where the API itself
+  reported `exact_match`, how many still scored wrong against your expected
+  ID. A high number here is a prompt to check with `--faq-file`, not proof
+  of either a labeling problem or a bot problem on its own — verified
+  against a real run where this sat at 86% but fixing every known
+  ID-normalization bug flipped zero rows from wrong to correct, so don't
+  assume it means stale labels without checking.
+- **Direct answer returned (%)** — how often the API committed to a FAQ
+  (`entity.FAQ_ID` populated) versus only returning suggestions.
 - **Avg Latency** — average API response time in ms.
 
 Rows that errored (network failure, non-2xx, unparseable response) are
