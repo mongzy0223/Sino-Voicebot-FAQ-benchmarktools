@@ -106,6 +106,7 @@ class TestResult:
     raw_response: Any = None
     exact_match: Optional[bool] = None
     confidence_score: Optional[float] = None
+    direct_answer: Optional[bool] = None
 
     @property
     def top1_correct(self) -> bool:
@@ -234,6 +235,26 @@ def _extract_bot_response(response_json: dict) -> tuple[str, Optional[float]]:
     return "", None
 
 
+def has_direct_match(response_json: Any, id_key: str = ID_KEY_NAME) -> Optional[bool]:
+    """Did the API resolve the query to a FAQ, or only offer similar_ids?
+
+    A populated `entity[id_key]` means the API committed to an answer. An
+    absent or empty one means it fell back to suggestions — the caller would
+    have been offered choices rather than given an answer. That distinction is
+    invisible in Confidence_Score, which came back as 1 on 894 of 905 rows in a
+    real run including rows with no matched entity at all.
+
+    Returns None when the response shape is not the entity/similar_ids one.
+    """
+    if not isinstance(response_json, dict):
+        return None
+    if "entity" not in response_json and "similar_ids" not in response_json:
+        return None
+    entity = response_json.get("entity")
+    value = entity.get(id_key) if isinstance(entity, dict) else None
+    return bool(value is not None and str(value).strip())
+
+
 def extract_match_data(
     response_json: Any,
     id_key: str = ID_KEY_NAME,
@@ -265,13 +286,34 @@ def extract_match_data(
     similar_ids = response_json.get("similar_ids")
 
     ordered_ids: list[str] = []
-    if matched_id is not None:
-        ordered_ids.append(str(matched_id))
+    seen: set[str] = set()
+
+    def _add(value: Any) -> None:
+        """Append a candidate, skipping blanks and format-duplicates.
+
+        Blank guard: when the API has no confident match it can return an
+        `entity` whose FAQ_ID is present but empty. Appending that put a
+        phantom candidate at position 0, which pushed every real candidate
+        down one rank and cost those rows their Top-1 (seen on 11 rows of a
+        real 905-row run, where the correct FAQ sat at Suggested_2 with
+        Suggested_1 blank).
+
+        Dedupe is on the normalized id, so 'FAQ_001' arriving in similar_ids
+        after entity returned '1' is not counted as a second candidate.
+        """
+        text = "" if value is None else str(value).strip()
+        if not text:
+            return
+        key = _normalize_faq_id(text)
+        if key in seen:
+            return
+        seen.add(key)
+        ordered_ids.append(text)
+
+    _add(matched_id)
     if isinstance(similar_ids, list):
         for sid in similar_ids:
-            sid_str = str(sid)
-            if sid_str not in ordered_ids:
-                ordered_ids.append(sid_str)
+            _add(sid)
 
     if ordered_ids:
         retrieved = [
@@ -490,16 +532,91 @@ def load_testcases(path: Path, default_path: Optional[str], default_lang: str) -
 # Scoring
 # --------------------------------------------------------------------------- #
 
+_ID_PREFIX_RE = re.compile(r"^(?:faq|q)[\s\-_]*0*(\d+)$", re.IGNORECASE)
+
+
 def _normalize_faq_id(value: Any) -> str:
     """
-    'Q2' and '2' must compare equal: the CMS's real FAQ_ID values are bare
-    numbers (confirmed against a live call, e.g. entity.FAQ_ID = "2"), while
-    Sino's own benchmark template labels them "FAQ Reference No." as "Q2".
-    Strip a leading Q/q (with an optional separator) before comparing.
+    'Q2', '2', 'FAQ_002' and 'faq-2' must all compare equal. The CMS's real
+    FAQ_ID values are usually bare numbers (confirmed against a live call, e.g.
+    entity.FAQ_ID = "2"), Sino's benchmark template labels them "FAQ Reference
+    No." as "Q2", and the API has been observed returning a zero-padded
+    "FAQ_001" form on some rows (real 905-row run, row 18: similar_ids came back
+    as ["FAQ_001", "FAQ_005"] while every other row returned bare integers).
+    Strip an optional FAQ/Q prefix, any separator and leading zeros; also
+    normalize a bare zero-padded number so "001" == "1".
     """
     text = str(value).strip()
-    m = re.match(r"^[Qq][-_]?(\d+)$", text)
-    return m.group(1) if m else text.lower()
+    m = _ID_PREFIX_RE.match(text)
+    if m:
+        return m.group(1)
+    if text.isdigit():
+        return str(int(text))
+    return text.lower()
+
+
+def load_faq_questions(path: Path) -> dict[str, dict[str, str]]:
+    """Load the FAQ workbook as {lang: {normalized_faq_id: question}}.
+
+    Used only to annotate and sanity-check the run — never to score. Expects
+    the FAQ_Leasing.xlsx shape: one sheet per language, with FAQ_ID and FAQ
+    columns. Sheet names map to the API's query_lang codes via
+    SHEET_NAME_LANG_SUFFIXES (zh -> zh, en -> en, cn -> sc).
+    """
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    out: dict[str, dict[str, str]] = {}
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            continue
+        header = [str(c).strip() if c is not None else "" for c in rows[0]]
+        try:
+            id_idx = header.index(ID_KEY_NAME)
+            q_idx = header.index("FAQ")
+        except ValueError:
+            continue
+        lang = SHEET_NAME_LANG_SUFFIXES.get(sheet_name.strip().lower(), sheet_name.strip().lower())
+        table = out.setdefault(lang, {})
+        for row in rows[1:]:
+            if id_idx >= len(row) or q_idx >= len(row) or row[id_idx] is None:
+                continue
+            table[_normalize_faq_id(row[id_idx])] = str(row[q_idx] or "")
+    wb.close()
+    return out
+
+
+def faq_question(faq_map: Optional[dict], lang: str, faq_id: Any) -> str:
+    if not faq_map or faq_id in (None, ""):
+        return ""
+    key = _normalize_faq_id(faq_id)
+    table = faq_map.get(lang) or {}
+    if key in table:
+        return table[key]
+    for other in faq_map.values():          # fall back to any language
+        if key in other:
+            return other[key]
+    return "<not in FAQ file>"
+
+
+def check_expected_ids(cases: list[TestCase], faq_map: dict) -> list[str]:
+    """Report expected FAQ IDs that do not exist in the FAQ file.
+
+    Catches a label pointing at an ID the FAQ set no longer has. It cannot
+    catch a label that drifted onto a DIFFERENT still-valid ID, so also read
+    the Expected_FAQ_Question column in the output: if it has nothing to do
+    with the query, that label has drifted even though check_expected_ids
+    found nothing wrong with it.
+    """
+    known = set()
+    for table in faq_map.values():
+        known |= set(table)
+    missing = []
+    for case in cases:
+        for eid in case.expected_ids:
+            if _normalize_faq_id(eid) not in known:
+                missing.append(f"row {case.row_num} ({case.sheet or case.path}): {eid}")
+    return missing
 
 
 def score_result(case: TestCase, retrieved: list[dict]) -> Optional[int]:
@@ -521,6 +638,7 @@ def write_results(
     top_ks: list[int],
     max_retrieved_cols: int = 5,
     save_raw: bool = False,
+    faq_map: Optional[dict] = None,
 ):
     wb = openpyxl.Workbook()
 
@@ -532,10 +650,13 @@ def write_results(
         "Top1_Correct", "Rank_of_Expected", "Reciprocal_Rank",
     ]
     header += [f"Hit@{k}" for k in top_ks]
-    header += ["Matched_FAQ_ID", "Matched_Response", "API_Exact_Match", "Confidence_Score"]
+    header += ["Matched_FAQ_ID", "Matched_Response", "API_Exact_Match", "Confidence_Score",
+               "Direct_Answer"]
     for i in range(1, max_retrieved_cols + 1):
         header += [f"Suggested_{i}_FAQ_ID", f"Suggested_{i}_Response"]
     header += ["Latency_ms", "HTTP_Status", "Error", "Notes"]
+    if faq_map:
+        header += ["Expected_FAQ_Question", "Matched_FAQ_Question"]
     if save_raw:
         header.append("Raw_Response")
     ws.append(header)
@@ -557,6 +678,7 @@ def write_results(
             r.matched_response,
             "" if r.exact_match is None else ("Y" if r.exact_match else "N"),
             round(r.confidence_score, 4) if r.confidence_score is not None else "",
+            "" if r.direct_answer is None else ("Y" if r.direct_answer else "N"),
         ]
         for i in range(max_retrieved_cols):
             row += [r.retrieved_id(i), r.retrieved_response(i)]
@@ -566,6 +688,11 @@ def write_results(
             r.error,
             r.case.notes,
         ]
+        if faq_map:
+            row += [
+                " | ".join(faq_question(faq_map, r.case.lang, e) for e in r.case.expected_ids),
+                faq_question(faq_map, r.case.lang, r.matched_id),
+            ]
         if save_raw:
             row.append(json.dumps(r.raw_response, ensure_ascii=False)[:32000])
         ws.append(row)
@@ -574,9 +701,10 @@ def write_results(
         [20, 6, 14, 10, 45, 16]  # Sheet, Row, Path, Language, Query, Expected_FAQ_ID
         + [12, 16, 16]  # Top1_Correct, Rank_of_Expected, Reciprocal_Rank
         + [8] * len(top_ks)  # Hit@k...
-        + [16, 45, 14, 14]  # Matched_FAQ_ID, Matched_Response, API_Exact_Match, Confidence_Score
+        + [16, 45, 14, 14, 14]  # Matched_FAQ_ID, Matched_Response, API_Exact_Match, Confidence_Score, Direct_Answer
         + [16, 45] * max_retrieved_cols  # Suggested_i_FAQ_ID, Suggested_i_Response
         + [12, 12, 40, 25]  # Latency_ms, HTTP_Status, Error, Notes
+        + ([45, 45] if faq_map else [])  # Expected_FAQ_Question, Matched_FAQ_Question
     )
     for i, col_width in enumerate(col_widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = col_width
@@ -615,6 +743,28 @@ def write_results(
         "MRR",
         lambda rs: round(
             sum(r.reciprocal_rank for r in rs if not r.error) / max(1, sum(1 for r in rs if not r.error)), 4
+        ),
+    )
+    # The API reporting exact_match while the scorer still calls the row
+    # wrong can mean the expected FAQ IDs have drifted from the FAQ set — but
+    # it isn't the only explanation, and on a real 905-row run investigated
+    # directly, fixing the two ID-normalization bugs below flipped zero rows
+    # from wrong to correct. Treat a high number here as a prompt to check
+    # with --faq-file, not as proof either way.
+    metric_row(
+        "Exact match but scored wrong (%)",
+        lambda rs: pct(
+            sum(1 for r in rs if not r.error and r.exact_match and not r.top1_correct),
+            sum(1 for r in rs if not r.error and r.exact_match),
+        ),
+    )
+    # How often the API committed to an answer at all, as opposed to handing
+    # back suggestions for the caller to choose from.
+    metric_row(
+        "Direct answer returned (%)",
+        lambda rs: pct(
+            sum(1 for r in rs if not r.error and r.direct_answer),
+            sum(1 for r in rs if not r.error and r.direct_answer is not None),
         ),
     )
     metric_row(
@@ -685,6 +835,7 @@ def main():
     ap.add_argument("--header", action="append", help="Extra request header 'Key: Value'. Repeatable.")
     ap.add_argument("--response-list-path", help="Dotted path to the retrieved-documents list in the response, e.g. 'data.documents'. Overrides auto-detection.")
     ap.add_argument("--max-retrieved-cols", type=int, default=5, help="How many retrieved ranks to include as columns.")
+    ap.add_argument("--faq-file", type=Path, help="FAQ workbook (e.g. FAQ_Leasing.xlsx) used to annotate results with the expected/matched FAQ question and to warn about expected IDs that do not exist. Never used for scoring.")
     ap.add_argument("--limit", type=int, help="Only run the first N test cases (smoke test).")
     ap.add_argument("--save-raw", action="store_true", help="Include the full raw JSON response per row in the output.")
     ap.add_argument("--verbose", action="store_true")
@@ -740,6 +891,22 @@ def main():
         cases = cases[: args.limit]
     print(f"Loaded {len(cases)} test case(s).")
 
+    faq_map = None
+    if args.faq_file:
+        faq_map = load_faq_questions(args.faq_file)
+        total = sum(len(t) for t in faq_map.values())
+        print(f"Loaded {total} FAQ question(s) from {args.faq_file} "
+              f"across {len(faq_map)} language(s): {', '.join(sorted(faq_map))}.")
+        missing = check_expected_ids(cases, faq_map)
+        if missing:
+            print(f"\nWARNING: {len(missing)} expected FAQ ID(s) do not exist in {args.faq_file}.")
+            for line in missing[:20]:
+                print(f"  {line}")
+            if len(missing) > 20:
+                print(f"  ... and {len(missing) - 20} more")
+            print("  Your test-case labels and your FAQ file are out of sync. Fix that before "
+                  "reading any accuracy number from this run.\n")
+
     results: list[TestResult] = []
     for i, case in enumerate(cases, start=1):
         body = build_request_body(
@@ -761,6 +928,7 @@ def main():
             result.retrieved = retrieved
             result.exact_match = exact_match
             result.confidence_score = confidence
+            result.direct_answer = has_direct_match(data, ID_KEY_NAME)
             result.rank = score_result(case, retrieved)
         if result.error:
             print(f"[{i}/{len(cases)}] row {case.row_num} ({case.path}): ERROR: {result.error}")
@@ -772,7 +940,7 @@ def main():
         if args.delay and i < len(cases):
             time.sleep(args.delay)
 
-    write_results(results, output_path, top_ks, args.max_retrieved_cols, args.save_raw)
+    write_results(results, output_path, top_ks, args.max_retrieved_cols, args.save_raw, faq_map)
     print(f"\nWrote results to {output_path}")
 
     scored = [r for r in results if not r.error]
@@ -781,6 +949,21 @@ def main():
         mrr = sum(r.reciprocal_rank for r in scored) / len(scored)
         print(f"Top-1 accuracy: {top1:.1f}%   MRR: {mrr:.4f}   "
               f"(scored {len(scored)}/{len(results)}, {len(results) - len(scored)} error(s))")
+
+        exact = [r for r in scored if r.exact_match]
+        if exact:
+            wrong = sum(1 for r in exact if not r.top1_correct)
+            share = 100.0 * wrong / len(exact)
+            if share >= 20.0:
+                print(
+                    f"\nNOTE: the API reported an exact match on {len(exact)} row(s), but "
+                    f"{wrong} of them ({share:.0f}%) still scored wrong.\n"
+                    f"  This can mean the expected FAQ IDs have drifted from the current FAQ set —\n"
+                    f"  but it can just as easily mean the bot is matching confidently to the wrong\n"
+                    f"  FAQ. Don't assume either cause: pass --faq-file to see the expected and\n"
+                    f"  matched question text side by side for these rows before drawing a\n"
+                    f"  conclusion from this number."
+                )
 
 
 if __name__ == "__main__":
