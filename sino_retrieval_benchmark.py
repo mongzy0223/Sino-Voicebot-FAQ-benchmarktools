@@ -130,20 +130,21 @@ class TestResult:
 
     @property
     def matched_id(self) -> str:
-        return self.retrieved_id(self.rank - 1) if self.rank else ""
+        """The FAQ the API actually returned (its top pick), regardless of whether
+        it happens to be correct — always position 0, never tied to `rank`."""
+        return self.retrieved_id(0)
 
     @property
     def matched_response(self) -> str:
-        return self.retrieved_response(self.rank - 1) if self.rank else ""
+        return self.retrieved_response(0)
 
     @property
     def other_suggestions(self) -> list[dict[str, str]]:
-        """All retrieved candidates other than the matched one, in rank order."""
-        matched_pos = self.rank - 1 if self.rank else None
+        """Every other candidate the API returned, in rank order, excluding the
+        top pick already shown as matched_id/matched_response."""
         return [
             {"faq_id": str(doc.get(ID_KEY_NAME, "")), "response": str(doc.get(RETRIEVED_TEXT_KEY_NAME, ""))}
-            for i, doc in enumerate(self.retrieved)
-            if i != matched_pos
+            for doc in self.retrieved[1:]
         ]
 
 
