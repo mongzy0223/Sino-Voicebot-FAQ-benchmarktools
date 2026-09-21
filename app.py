@@ -30,6 +30,7 @@ from sino_retrieval_benchmark import (
     DEFAULT_API_URL,
     DEFAULT_CMS_PROJECT_ID,
     DEFAULT_GRAPH_NAME,
+    DEFAULT_LLM_MODEL_TYPE,
     DEFAULT_PROJECT_ID,
     ID_KEY_NAME,
     RETRIEVED_TEXT_KEY_NAME,
@@ -63,6 +64,7 @@ DEFAULTS = {
     "project_id": DEFAULT_PROJECT_ID,
     "cms_project_id": DEFAULT_CMS_PROJECT_ID,
     "graph_name": DEFAULT_GRAPH_NAME,
+    "llm_model_type": DEFAULT_LLM_MODEL_TYPE,
 }
 
 
@@ -72,6 +74,7 @@ def form_settings(form) -> dict:
         "project_id": form.get("project_id", "").strip() or DEFAULT_PROJECT_ID,
         "cms_project_id": form.get("cms_project_id", "").strip() or DEFAULT_CMS_PROJECT_ID,
         "graph_name": form.get("graph_name", "").strip() or DEFAULT_GRAPH_NAME,
+        "llm_model_type": form.get("llm_model_type", "").strip() or DEFAULT_LLM_MODEL_TYPE,
         "headers_raw": form.get("headers_raw", "").strip(),
         "timeout": float(form.get("timeout") or 30),
         "retries": int(form.get("retries") or 2),
@@ -126,7 +129,7 @@ def probe():
 
     body = build_request_body(
         query, path, lang,
-        settings["project_id"], settings["cms_project_id"], settings["graph_name"],
+        settings["project_id"], settings["cms_project_id"], settings["graph_name"], settings["llm_model_type"],
     )
     session = requests.Session()
     data, status, latency_ms, error = call_api(
@@ -173,7 +176,7 @@ def _run_batch_job(job_id: str, cases: list, settings: dict, headers: dict, top_
         for i, case in enumerate(cases):
             req_body = build_request_body(
                 case.query, case.path, case.lang,
-                settings["project_id"], settings["cms_project_id"], settings["graph_name"],
+                settings["project_id"], settings["cms_project_id"], settings["graph_name"], settings["llm_model_type"],
             )
             data, status, latency_ms, error = call_api(
                 session, settings["api_url"], req_body, headers, settings["timeout"], settings["retries"]
