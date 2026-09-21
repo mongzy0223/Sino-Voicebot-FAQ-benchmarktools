@@ -42,6 +42,7 @@ DEFAULT_API_URL = "https://dev.setsailapi.com/nlp/llmGraph/graph/multi/run"
 DEFAULT_PROJECT_ID = "public"
 DEFAULT_CMS_PROJECT_ID = "sinoexvoicebot-52ynuou"
 DEFAULT_GRAPH_NAME = "text_retrieval_test"
+DEFAULT_LLM_MODEL_TYPE = "gemini-3.7-flash"
 ID_KEY_NAME = "FAQ_ID"
 DISPLAY_COLUMNS = ["FAQ_ID", "FAQ"]
 RETRIEVED_TEXT_KEY_NAME = "FAQ_answer_listening_friendly"
@@ -338,6 +339,7 @@ def build_request_body(
     project_id: str,
     cms_project_id: str,
     graph_name: str,
+    llm_model_type: str = DEFAULT_LLM_MODEL_TYPE,
 ) -> dict:
     return {
         "project_id": project_id,
@@ -348,6 +350,7 @@ def build_request_body(
         "display_columns": DISPLAY_COLUMNS,
         "retrieved_text_key_name": RETRIEVED_TEXT_KEY_NAME,
         "query_lang": lang,
+        "llm_model_type": llm_model_type,
         "messages": [{"type": "human", "content": query}],
         "stream": False,
         "slim_response": True,
@@ -826,6 +829,7 @@ def main():
     ap.add_argument("--project-id", default=DEFAULT_PROJECT_ID)
     ap.add_argument("--cms-project-id", default=DEFAULT_CMS_PROJECT_ID)
     ap.add_argument("--graph-name", default=DEFAULT_GRAPH_NAME)
+    ap.add_argument("--llm-model-type", default=DEFAULT_LLM_MODEL_TYPE, help="llm_model_type sent to the API.")
     ap.add_argument("--default-path", choices=VALID_PATHS, help="Path to use for rows without one.")
     ap.add_argument("--default-lang", default="en", help="query_lang to use for rows without one.")
     ap.add_argument("--top-k", default="1,3,5", help="Comma-separated k values for Recall@k, e.g. '1,3,5'.")
@@ -852,7 +856,7 @@ def main():
             ap.error("--probe-path is required with --probe-query.")
         body = build_request_body(
             args.probe_query, args.probe_path, args.probe_lang,
-            args.project_id, args.cms_project_id, args.graph_name,
+            args.project_id, args.cms_project_id, args.graph_name, args.llm_model_type,
         )
         print("Request body:")
         print(json.dumps(body, indent=2, ensure_ascii=False))
@@ -911,7 +915,7 @@ def main():
     for i, case in enumerate(cases, start=1):
         body = build_request_body(
             case.query, case.path, case.lang,
-            args.project_id, args.cms_project_id, args.graph_name,
+            args.project_id, args.cms_project_id, args.graph_name, args.llm_model_type,
         )
         data, status, latency_ms, error = call_api(
             session, args.api_url, body, headers, args.timeout, args.retries

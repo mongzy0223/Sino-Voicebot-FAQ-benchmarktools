@@ -23,13 +23,16 @@ with a body of the form:
   "display_columns": ["FAQ_ID", "FAQ"],
   "retrieved_text_key_name": "FAQ_answer_listening_friendly",
   "query_lang": "en",
+  "llm_model_type": "gemini-3.7-flash",
   "messages": [{"type": "human", "content": "<query>"}],
   "stream": false,
   "slim_response": true
 }
 ```
 
-`path` is `FAQ_Mortgage` or `FAQ_Leasing`, set per test case.
+`path` is `FAQ_Mortgage` or `FAQ_Leasing`, set per test case. `llm_model_type`
+defaults to `gemini-3.7-flash` and can be overridden with `--llm-model-type`
+(CLI) or the "Advanced settings" panel (web UI).
 
 ### How the response is read
 
